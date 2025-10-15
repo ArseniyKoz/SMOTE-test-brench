@@ -10,12 +10,13 @@ from collections import Counter
 import time
 import logging
 
+
 class BaseSMOTE(BaseEstimator, ABC):
     """
     Базовый абстрактный класс для всех реализаций SMOTE
     """
 
-    def __init__(self, 
+    def __init__(self,
                  sampling_strategy: str = 'auto',
                  random_state: Optional[int] = None):
         """
@@ -34,7 +35,7 @@ class BaseSMOTE(BaseEstimator, ABC):
     @abstractmethod
     def fit_resample(self, X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Основной метод для применения SMOTE
+        Основной метод для применения SMOTE алгоритмов
 
         Параметры:
         ----------
@@ -84,20 +85,20 @@ class BaseSMOTE(BaseEstimator, ABC):
         """
         target_counts = {}
         if self.sampling_strategy == 'auto':
-            # Балансируем все классы до размера мажоритарного
             majority_count = max(class_counts.values())
             for class_label, current_count in class_counts.items():
                 target_counts[class_label] = max(0, majority_count - current_count)
-
 
         return target_counts
 
     def _time_execution(func):
         """Декоратор для измерения времени выполнения"""
+
         def wrapper(self, *args, **kwargs):
             start_time = time.time()
             result = func(self, *args, **kwargs)
             execution_time = time.time() - start_time
             self.logger.info(f"Время выполнения {func.__name__}: {execution_time:.3f} сек")
             return result
+
         return wrapper

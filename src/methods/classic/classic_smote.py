@@ -3,73 +3,24 @@ from src.methods.base import BaseSMOTE
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 from collections import Counter
-from typing import Tuple, Union, Dict
+from typing import Tuple
+
 
 class SMOTE(BaseSMOTE):
-
-    category = 'classic'
-    complexity = 'low'
-    year = 2002
-
     def __init__(self,
                  k_neighbors: int = 5,
-                 sampling_strategy: Union[str, Dict] = 'auto',
                  random_state: int = None):
 
-        super().__init__(sampling_strategy, random_state)
-
-        if k_neighbors < 1:
-            raise ValueError("k_neighbors должно быть положительным целым числом")
-
+        super().__init__(random_state=random_state)
         self.k_neighbors = k_neighbors
-        self.sampling_strategy = sampling_strategy
         self.random_state = random_state
 
         self.random_generator = np.random.RandomState(random_state)
 
-
-    def fit_resample(self, X, y):
-
-        X, y = self._validate_input(X, y)
-
-        class_counts = Counter(y)
-
-        target_counts = self._calculate_target_counts(class_counts)
-
-        if not any(count > 0 for count in target_counts.values()):
-            return X, y
-
-        X_synthetic_parts = []
-        y_synthetic_parts = []
-
-        for class_label, n_samples_needed in target_counts.items():
-            if n_samples_needed > 0:
-
-                class_mask = (y == class_label)
-                X_class = X[class_mask]
-
-                X_synthetic_class, y_synthetic_class = self._generate_samples_for_class(X_class, class_label, n_samples_needed)
-
-                X_synthetic_parts.append(X_synthetic_class)
-                y_synthetic_parts.append(y_synthetic_class)
-
-        if X_synthetic_parts:
-            X_synthetic = np.vstack(X_synthetic_parts)
-            y_synthetic = np.hstack(y_synthetic_parts)
-
-            X_resampled = np.vstack([X, X_synthetic])
-            y_resampled = np.hstack([y, y_synthetic])
-
-        else:
-            X_resampled, y_resampled = X, y
-
-        return X_resampled, y_resampled
-
-
     def _generate_samples_for_class(self,
-                                  X_class: np.ndarray,
-                                  class_label: int,
-                                  n_samples: int) -> Tuple[np.ndarray, np.ndarray]:
+                                    X_class: np.ndarray,
+                                    class_label: int,
+                                    n_samples: int) -> Tuple[np.ndarray, np.ndarray]:
 
         n_samples_class = len(X_class)
 
@@ -114,3 +65,40 @@ class SMOTE(BaseSMOTE):
             y_synthetic.append(class_label)
 
         return np.array(X_synthetic), np.array(y_synthetic)
+
+    def fit_resample(self, X, y):
+
+        X, y = self._validate_input(X, y)
+
+        class_counts = Counter(y)
+
+        target_counts = self._calculate_target_counts(class_counts)
+
+        if not any(count > 0 for count in target_counts.values()):
+            return X, y
+
+        X_synthetic_parts = []
+        y_synthetic_parts = []
+
+        for class_label, n_samples_needed in target_counts.items():
+            if n_samples_needed > 0:
+                class_mask = (y == class_label)
+                X_class = X[class_mask]
+
+                X_synthetic_class, y_synthetic_class = self._generate_samples_for_class(X_class, class_label,
+                                                                                        n_samples_needed)
+
+                X_synthetic_parts.append(X_synthetic_class)
+                y_synthetic_parts.append(y_synthetic_class)
+
+        if X_synthetic_parts:
+            X_synthetic = np.vstack(X_synthetic_parts)
+            y_synthetic = np.hstack(y_synthetic_parts)
+
+            X_resampled = np.vstack([X, X_synthetic])
+            y_resampled = np.hstack([y, y_synthetic])
+
+        else:
+            X_resampled, y_resampled = X, y
+
+        return X_resampled, y_resampled

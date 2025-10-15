@@ -1,16 +1,11 @@
-import os
-from pathlib import Path
 from typing import Tuple, Dict
 import numpy as np
-import pandas as pd
 from sklearn.datasets import (
     make_classification, load_breast_cancer, load_wine, load_iris,
     fetch_openml, load_digits
 )
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-import logging
+from sklearn.preprocessing import LabelEncoder
 
-logger = logging.getLogger(__name__)
 
 class DataLoader:
     def __init__(self, auto_preprocess: bool = False):
@@ -19,7 +14,6 @@ class DataLoader:
         self._register_data_sources()
 
     def _register_data_sources(self):
-        """Регистрация всех доступных источников данных"""
         self.data_sources = {
             'synthetic': self._load_synthetic_data,
             'synthetic_imbalanced': self._load_synthetic_imbalanced,
@@ -38,14 +32,14 @@ class DataLoader:
         }
 
     def load_dataset(self,
-                    name: str,
-                    **kwargs) -> Tuple[np.ndarray, np.ndarray]:
+                     name: str,
+                     **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         """
         Универсальная загрузка датасетов
         Параметры:
         ----------
         name : str
-            Название датасета или путь к файлу
+            Название датасета
         **kwargs : dict
             Дополнительные параметры для загрузчика
         Возвращает:
@@ -61,29 +55,9 @@ class DataLoader:
             X, y = loader_func(**kwargs)
         else:
             raise ValueError(f"Неизвестный источник данных: {name}\n"
-                           f"Доступные источники: {list(self.data_sources.keys())}")
-
-        if self.auto_preprocess:
-            X, y = self._preprocess_data(X, y, **kwargs)
+                             f"Доступные источники: {list(self.data_sources.keys())}")
 
         return X, y
-
-    def _preprocess_data(self, X: np.ndarray, y: np.ndarray, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
-
-        # Масштабирование признаков
-        if kwargs.get('scale_features', True):
-            if X.dtype in [np.float32, np.float64] and X.var(axis=0).max() > 100:
-                scaler = StandardScaler()
-                X = scaler.fit_transform(X)
-
-        # Кодирование меток
-        if kwargs.get('encode_labels', True):
-            if y.dtype not in [np.int32, np.int64]:
-                encoder = LabelEncoder()
-                y = encoder.fit_transform(y)
-
-        return X.astype(np.float32), y.astype(np.int32)
-
 
     def _load_synthetic_data(self, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         """Генерация синтетических данных"""
@@ -119,11 +93,7 @@ class DataLoader:
     def _load_breast_cancer(self, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         data = load_breast_cancer()
 
-        imbalance_ratio = kwargs.get('imbalance_ratio', None)
-        if imbalance_ratio:
-            X, y = self._create_imbalance(data.data, data.target, imbalance_ratio)
-        else:
-            X, y = data.data, data.target
+        X, y = data.data, data.target
 
         return X, y
 
@@ -131,12 +101,8 @@ class DataLoader:
         data = load_wine()
         X, y = data.data, data.target
 
-        # Преобразуем в бинарную классификацию если нужно
-        if kwargs.get('binary_classification', True):
-            y = np.where(y == 0, 0, 1)  # Класс 0 vs остальные
-            name = "Wine_Binary"
-        else:
-            name = "Wine_Multiclass"
+        # Преобразуем в бинарную классификацию
+        y = np.where(y == 0, 0, 1)  # Класс 0 vs остальные
 
         return X, y
 
@@ -191,28 +157,6 @@ class DataLoader:
 
         return X, y
 
-    def _create_imbalance(self, X: np.ndarray, y: np.ndarray, ratio: float) -> Tuple[np.ndarray, np.ndarray]:
-        """Создание искусственного дисбаланса в данных"""
-        minority_class = np.argmin(np.bincount(y))
-        majority_class = 1 - minority_class
-
-        minority_indices = np.where(y == minority_class)[0]
-        majority_indices = np.where(y == majority_class)[0]
-
-        n_minority_keep = len(majority_indices) // ratio
-        if n_minority_keep < len(minority_indices):
-            np.random.seed(42)
-            keep_indices = np.random.choice(
-                minority_indices,
-                size=n_minority_keep,
-                replace=False
-            )
-            selected_indices = np.concatenate([majority_indices, keep_indices])
-            return X[selected_indices], y[selected_indices]
-
-        return X, y
-
-
     def get_available_datasets(self) -> Dict[str, str]:
         descriptions = {
             'synthetic': 'Синтетические сбалансированные данные',
@@ -229,13 +173,14 @@ class DataLoader:
         }
         return descriptions
 
+
 # Глобальный экземпляр
 default_loader = DataLoader()
+
 
 def load_dataset(name: str, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
     return default_loader.load_dataset(name, **kwargs)
 
+
 def get_available_datasets() -> Dict[str, str]:
     return default_loader.get_available_datasets()
-
-
