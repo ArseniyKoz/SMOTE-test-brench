@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
+from clearml import Task
 from sklearn.metrics import precision_recall_curve, roc_curve, auc
 
 from src.evaluation.basic_evaluator import *
@@ -16,7 +17,7 @@ sns.set_palette("husl")
 
 class Visualiser:
 
-    def __init__(self, figsize: Tuple[int, int] = (12, 8), dpi: int = 100):
+    def __init__(self, figsize: Tuple[int, int] = (12, 8), dpi: int = 100, show: bool = False):
         self.figsize = figsize
         self.dpi = dpi
         self.colors = {
@@ -28,6 +29,7 @@ class Visualiser:
             'grid': '#E0E0E0',
             'text': '#2C3E50'
         }
+        self.show = show
 
     def plot_class_distribution(self,
                                 y_original: np.ndarray,
@@ -104,7 +106,9 @@ class Visualiser:
         plt.tight_layout()
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+        if self.show:
+            plt.show()
+        return fig
 
     def plot_data_scatter(self,
                           X_original: np.ndarray,
@@ -187,12 +191,17 @@ class Visualiser:
         plt.tight_layout()
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+
+        plt.show() if self.show else plt.close()
+
+        return fig
 
     def plot_roc_curves(self,
                         y_test: np.ndarray,
                         predictions: Dict[str, Dict[str, np.ndarray]],
                         title: str = "ROC кривые",
+                        clearml_task: Optional[Task] = None,
+                        iteration: int = 1,
                         save_path: Optional[str] = None) -> None:
         """
         Построение ROC кривых
@@ -226,7 +235,13 @@ class Visualiser:
                     label = f'{model_name} ({"исходные" if data_type == "original" else "SMOTE"}) - AUC: {roc_auc:.3f}'
                     plt.plot(fpr, tpr, color=colors[i % len(colors)],
                              linestyle=line_styles[j], linewidth=1.5, label=label)
-
+                    if clearml_task:
+                        clearml_task.get_logger().report_scalar(
+                            title="ROC AUC Scores",
+                            series=f"{model_name}_{data_type}",
+                            value=roc_auc,
+                            iteration=iteration
+                        )
         plt.plot([0, 1], [0, 1], 'k--', alpha=0.5, linewidth=1, label='Случайный классификатор')
 
         plt.xlim([0.0, 1.0])
@@ -237,14 +252,25 @@ class Visualiser:
         plt.legend(loc="lower right", fontsize=10)
         plt.grid(True, alpha=0.3)
 
+        if clearml_task:
+            clearml_task.get_logger().report_matplotlib_figure(
+                title="ROC Analysis",
+                series=title.replace(" ", "_"),
+                figure=plt,
+                iteration=iteration
+            )
+
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+
+        plt.show() if self.show else plt.close()
 
     def plot_precision_recall_curves(self,
                                      y_test: np.ndarray,
                                      predictions: Dict[str, Dict[str, np.ndarray]],
                                      title: str = "Precision-Recall кривые",
+                                     clearml_task: Optional[Task] = None,
+                                     iteration: int = 1,
                                      save_path: Optional[str] = None) -> None:
         """
         Построение Precision-Recall кривых
@@ -280,6 +306,13 @@ class Visualiser:
                     plt.plot(recall, precision, color=colors[i % len(colors)],
                              linestyle=line_styles[j], linewidth=1.5, label=label)
 
+                    if clearml_task:
+                        clearml_task.get_logger().report_scalar(
+                            title="PR_AUC Scores",
+                            series=f"{model_name}_{data_type}",
+                            value=pr_auc,
+                            iteration=iteration
+                        )
         baseline = np.sum(y_test) / len(y_test)
         plt.axhline(y=baseline, color='k', linestyle='--', alpha=0.5,
                     label=f'Базовая линия: {baseline:.3f}')
@@ -292,9 +325,18 @@ class Visualiser:
         plt.legend(loc="lower left", fontsize=10)
         plt.grid(True, alpha=0.3)
 
+        if clearml_task:
+            clearml_task.get_logger().report_matplotlib_figure(
+                title="PRC Analysis",
+                series=title.replace(" ", "_"),
+                figure=plt,
+                iteration=iteration
+            )
+
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.show()
+
+        plt.show() if self.show else plt.close()
 
     def plot_confusion_matrices(self,
                                 y_test: np.ndarray,
