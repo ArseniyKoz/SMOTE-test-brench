@@ -5,9 +5,6 @@ import time
 import warnings
 import json
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.metrics import confusion_matrix
 
 warnings.filterwarnings('ignore')
 
@@ -109,14 +106,9 @@ class ExperimentConfig:
 
             'Log model params': self.log_model_params,
 
-            'Enable data visualization': self.enable_data_visualisation,
-            'Enable class distribution plots': self.enable_class_distribution_plots,
             'Enable scatter plots': self.enable_scatter_plots,
             'Enable ROC curves': self.enable_roc_curves,
-            'Enable PR curves': self.enable_precision_recall_curves,
-            'Enable confusion matrices plots': self.enable_confusion_matrices_plots,
-            'Enable metric comparison plots': self.enable_metric_comparison_plots,
-            'Enable comprehensive visualization': self.enable_comprehensive_visualisation
+            'Enable PR curves': self.enable_precision_recall_curves
         }
         return config
 
@@ -135,14 +127,14 @@ class ExperimentRunner:
             self.logger = Task.get_logger(self.task)
 
         self.data_loader = DataLoader()
-        self.visualizer = Visualiser()
+        self.visualiser = Visualiser()
         if self.task:
-            self.visualizer.set_clearml_task(self.task)
+            self.visualiser.set_clearml_task(self.task)
         self.classifier_pool = ClassifierPool(random_state=self.config.random_state)
         self.results = {}
         self.experiment_metadata = {}
 
-        self.visualization_counter = 0
+        self.visualisation_counter = 0
 
     def _initialize_clearml_task(self):
         task_name = self.config.clearml_task_name or f"SMOTE Experiment {time.strftime('%Y%m%d_%H%M%S')}"
@@ -182,10 +174,7 @@ class ExperimentRunner:
         data_load_time = time.time() - data_load_start
 
         if self.task:
-            self._log_dataset_info(X, y, dataset_name, smote_algorithm, data_load_time)
-
-        if self.config.enable_data_visualisation and self.config.enable_class_distribution_plots:
-            self._create_initial_data_visualisation(X, y, dataset_name)
+            self._log_dataset_info(X, y, data_load_time)
 
         X_train, X_test, y_train, y_test = train_test_split(
             X, y,
@@ -211,25 +200,13 @@ class ExperimentRunner:
 
         final_eval_start = time.time()
         final_results = self._final_evaluation(
-            X_train, y_train, X_test, y_test, smote_algorithm, selected_classifiers
+            X_train, y_train, X_test, y_test, smote_algorithm, selected_classifiers, dataset_name=dataset_name
         )
         final_eval_time = time.time() - final_eval_start
 
-        if self.config.enable_data_visualisation:
-            viz_start = time.time()
-            self._create_results_visualisations(
-                cv_results, final_results, selected_classifiers,
-                X_test, y_test, dataset_name, smote_algorithm
-            )
-            viz_time = time.time() - viz_start
-
-            if self.task:
-                self.task.get_logger().report_scalar("Timing", "Visualization Time", viz_time, iteration=1)
-
-        if self.task and self.config.create_summary_visualisations:
-            self._create_experiment_visualisations(cv_results, final_results, selected_classifiers)
-
         experiment_time = time.time() - experiment_start
+
+        self._create_results_visualisations(final_results, y_test, dataset_name, smote_algorithm)
 
         if self.task:
             logger = self.task.get_logger()
@@ -266,7 +243,68 @@ class ExperimentRunner:
 
         return experiment_results
 
-    def _log_dataset_info(self, X, y, dataset_name, smote_algorithm, data_load_time):
+    def _create_data_scatter_visualisation(self, X_train: np.ndarray, y_train: np.ndarray,
+                                           X_train_smote: np.ndarray, y_train_smote: np.ndarray,
+                                           synthetic_samples: np.ndarray, dataset_name: str):
+
+        if self.config.enable_scatter_plots and X_train.shape[1] >= 2:
+            feature_names = [f'Feature {i + 1}' for i in range(X_train.shape[1])]
+            self.visualiser.plot_data_scatter(
+                X_original=X_train,
+                y_original=y_train,
+                X_smote=X_train_smote,
+                y_smote=y_train_smote,
+                synthetic_samples=synthetic_samples,
+                feature_names=feature_names,
+                title=f"SMOTE Effect on Data - {dataset_name}",
+                log_to_clearml=True,
+                iteration=2
+            )
+
+    def _prepare_predictions_data(self, final_results: Dict) -> Dict:
+
+        roc_predictions = {}
+        discrete_predictions = {}
+
+        for clf_name, clf_results in final_results.items():
+            if 'original_data' in clf_results and 'smote_data' in clf_results:
+                roc_predictions[clf_name] = {}
+                discrete_predictions[clf_name] = {}
+
+                roc_predictions[clf_name]['original'] = clf_results['original_data']['y_pred_proba']
+
+                roc_predictions[clf_name]['smote'] = clf_results['smote_data']['y_pred_proba']
+
+        roc_predictions = {k: v for k, v in roc_predictions.items() if v}
+
+        return {'roc_predictions': roc_predictions}
+
+    def _create_results_visualisations(self, final_results: Dict,
+                                       y_test: np.ndarray,
+                                       dataset_name: str,
+                                       smote_algorithm: Any):
+
+        predictions_data = self._prepare_predictions_data(final_results)
+
+        if predictions_data['roc_predictions'] and self.config.enable_roc_curves:
+            self.visualiser.plot_roc_curves(
+                y_test=y_test,
+                predictions=predictions_data['roc_predictions'],
+                title=f"ROC Analysis - {smote_algorithm.__class__.__name__} - {dataset_name}",
+                clearml_task=self.task,
+                iteration=3
+            )
+
+        if predictions_data['roc_predictions'] and self.config.enable_precision_recall_curves:
+            self.visualiser.plot_precision_recall_curves(
+                y_test=y_test,
+                predictions=predictions_data['roc_predictions'],
+                title=f"PR Analysis - {smote_algorithm.__class__.__name__} - {dataset_name}",
+                clearml_task=self.task,
+                iteration=3
+            )
+
+    def _log_dataset_info(self, X, y, data_load_time):
         if not self.task:
             return
 
@@ -279,21 +317,6 @@ class ExperimentRunner:
         logger.report_scalar("Dataset Info", "Classes", len(class_dist), iteration=0)
         logger.report_scalar("Dataset Info", "Imbalance Ratio", imbalance_ratio, iteration=0)
         logger.report_scalar("Timing", "Data Load Time", data_load_time, iteration=0)
-        logger.report_text(f"""
-=== ИНФОРМАЦИЯ О ДАТАСЕТЕ ===
-Название: {dataset_name}
-SMOTE алгоритм: {smote_algorithm.__class__.__name__}
-            
-Статистика:
-- Общее количество образцов: {len(X):,}
-- Количество признаков: {X.shape[1]:,}
-- Количество классов: {len(class_dist)}
-- Распределение классов: {class_dist.tolist()}
-- Коэффициент дисбаланса: {imbalance_ratio:.2f}:1
-            
-Производительность:
-- Время загрузки данных: {data_load_time:.3f} сек
-""", iteration=0)
 
     def _log_model_parameters(self, selected_classifiers):
         if not self.task:
@@ -464,15 +487,13 @@ SMOTE алгоритм: {smote_algorithm.__class__.__name__}
                           X_train: np.ndarray, y_train: np.ndarray,
                           X_test: np.ndarray, y_test: np.ndarray,
                           smote_algorithm: Any,
-                          classifiers: Dict[str, Any]) -> Dict[str, Any]:
+                          classifiers: Dict[str, Any],
+                          dataset_name: str) -> Dict[str, Any]:
         smote_start = time.time()
         X_train_smote, y_train_smote = smote_algorithm.fit_resample(X_train, y_train)
         smote_time = time.time() - smote_start
-        if self.task:
-            self._log_smote_transformation(X_train, y_train, X_train_smote, y_train_smote, smote_time)
 
         final_results = {}
-        roc_predictions = {}
 
         for clf_name, classifier in classifiers.items():
 
@@ -482,24 +503,17 @@ SMOTE алгоритм: {smote_algorithm.__class__.__name__}
             y_pred_original = classifier_original.predict(X_test)
             orig_time = time.time() - orig_start
 
-            y_pred_proba_original = None
-            if hasattr(classifier_original, 'predict_proba'):
-                y_pred_proba_original = classifier_original.predict_proba(X_test)[:, 1]
-
             smote_model_start = time.time()
             classifier_smote = type(classifier)(**classifier.get_params())
             classifier_smote.fit(X_train_smote, y_train_smote)
             y_pred_smote = classifier_smote.predict(X_test)
             smote_model_time = time.time() - smote_model_start
 
+            y_pred_proba_original = None
             y_pred_proba_smote = None
             if hasattr(classifier_original, 'predict_proba') and hasattr(classifier_smote, 'predict_proba'):
                 y_pred_proba_original = classifier_original.predict_proba(X_test)[:, 1]
                 y_pred_proba_smote = classifier_smote.predict_proba(X_test)[:, 1]
-                roc_predictions[clf_name] = {
-                    'original': y_pred_proba_original,
-                    'smote': y_pred_proba_smote
-                }
 
             metrics_original = all_smote_metrics(
                 y_test, y_pred_original, y_pred_proba_original
@@ -513,6 +527,24 @@ SMOTE алгоритм: {smote_algorithm.__class__.__name__}
                 metric: metrics_smote[metric] - metrics_original[metric]
                 for metric in metrics_original.keys()
                 if metric in metrics_smote
+            }
+
+            final_results[clf_name] = {
+                'original_data': {
+                    **metrics_original,
+                    'y_pred': y_pred_original,
+                    'y_pred_proba': y_pred_proba_original,
+                },
+                'smote_data': {
+                    **metrics_smote,
+                    'y_pred': y_pred_smote,
+                    'y_pred_proba': y_pred_proba_smote,
+                },
+                'improvement': improvements,
+                'timing': {
+                    'original_train_time': orig_time,
+                    'smote_train_time': smote_model_time
+                }
             }
 
             if self.task:
@@ -545,311 +577,16 @@ SMOTE алгоритм: {smote_algorithm.__class__.__name__}
                                 iteration=1
                             )
 
-            if self.task and self.config.log_confusion_matrices:
-                self._log_confusion_matrices(y_test, y_pred_original, y_pred_smote, clf_name)
+        n_original = len(X_train)
+        synthetic_samples = X_train_smote[n_original:] if len(X_train_smote) > n_original else None
 
-            if roc_predictions:
-                self.visualizer.plot_roc_curves(
-                    y_test=y_test,
-                    predictions=roc_predictions,
-                    title=f"ROC Analysis - {smote_algorithm.__class__.__name__}",
-                    clearml_task=self.task,
-                    iteration=1
-                )
-
-            final_results[clf_name] = {
-                'original_data': metrics_original,
-                'smote_data': metrics_smote,
-                'improvement': improvements,
-                'timing': {
-                    'original_train_time': orig_time,
-                    'smote_train_time': smote_model_time
-                }
-            }
+        self._create_data_scatter_visualisation(X_train, y_train, X_train_smote, y_train_smote,
+                                                synthetic_samples,
+                                                dataset_name=dataset_name)
 
         return final_results
 
-    def _log_smote_transformation(self, X_train, y_train, X_train_smote, y_train_smote, smote_time):
-        if not self.task:
-            return
-
-        logger = self.task.get_logger()
-
-        logger.report_scalar("Final SMOTE Effect", "Original Train Size", len(y_train), iteration=1)
-        logger.report_scalar("Final SMOTE Effect", "SMOTE Train Size", len(y_train_smote), iteration=1)
-        logger.report_scalar("Final SMOTE Effect", "Size Increase Factor", len(y_train_smote) / len(y_train),
-                             iteration=1)
-        logger.report_scalar("Timing", "SMOTE Transformation Time", smote_time, iteration=1)
-
-        original_dist = np.bincount(y_train)
-        smote_dist = np.bincount(y_train_smote)
-
-        logger.report_text(f"""
-=== SMOTE TRANSFORMATION SUMMARY ===
-        
-Размеры данных:
-- Исходные данные: {len(y_train):,} образцов
-- После SMOTE: {len(y_train_smote):,} образцов
-- Увеличение размера: {len(y_train_smote) / len(y_train):.2f}x
-        
-Распределение классов:
-- Исходное: {original_dist.tolist()}
-- После SMOTE: {smote_dist.tolist()}
-        
-Производительность:
-- Время SMOTE трансформации: {smote_time:.3f} сек
-""", iteration=1)
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-
-        classes = [f"Class {i}" for i in range(len(original_dist))]
-        colors = ['lightcoral', 'skyblue', 'lightgreen', 'gold'][:len(original_dist)]
-
-        ax1.bar(classes, original_dist, color=colors, alpha=0.7, edgecolor='black')
-        ax1.set_title('Распределение классов: До SMOTE', fontweight='bold')
-        ax1.set_ylabel('Количество образцов')
-
-        ax2.bar(classes, smote_dist, color=colors, alpha=0.7, edgecolor='black')
-        ax2.set_title('Распределение классов: После SMOTE', fontweight='bold')
-        ax2.set_ylabel('Количество образцов')
-
-        plt.tight_layout()
-        logger.report_matplotlib_figure(
-            "SMOTE Transformation",
-            "Class Distribution Comparison",
-            fig,
-            iteration=1
-        )
-        plt.close(fig)
-
-    def _log_confusion_matrices(self, y_test, y_pred_original, y_pred_smote, clf_name):
-        if not self.task:
-            return
-
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-
-        cm_original = confusion_matrix(y_test, y_pred_original)
-        sns.heatmap(cm_original, annot=True, fmt='d', ax=ax1, cmap='Blues',
-                    cbar_kws={'label': 'Count'})
-        ax1.set_title(f'{clf_name}: Original Data', fontweight='bold')
-        ax1.set_ylabel('Actual')
-        ax1.set_xlabel('Predicted')
-
-        cm_smote = confusion_matrix(y_test, y_pred_smote)
-        sns.heatmap(cm_smote, annot=True, fmt='d', ax=ax2, cmap='Greens',
-                    cbar_kws={'label': 'Count'})
-        ax2.set_title(f'{clf_name}: SMOTE Data', fontweight='bold')
-        ax2.set_ylabel('Actual')
-        ax2.set_xlabel('Predicted')
-
-        plt.tight_layout()
-        self.task.get_logger().report_matplotlib_figure(
-            "Confusion Matrices",
-            f"{clf_name}_Comparison",
-            fig,
-            iteration=1
-        )
-        plt.close(fig)
-
-    def _create_experiment_visualizations(self, cv_results, final_results, selected_classifiers):
-        if not self.task:
-            return
-
-        self._create_improvements_heatmap(final_results, selected_classifiers)
-
-        self._create_cv_vs_final_comparison(cv_results, final_results, selected_classifiers)
-
-        self._create_smote_effectiveness_chart(final_results, selected_classifiers)
-
-    def _create_improvements_heatmap(self, final_results, selected_classifiers):
-        """Создание heatmap улучшений SMOTE"""
-        improvements_data = []
-        metric_names = []
-        classifier_names = []
-
-        for clf_name in selected_classifiers:
-            if clf_name in final_results:
-                classifier_names.append(clf_name)
-                improvements = final_results[clf_name].get('improvement', {})
-                row = []
-                for metric in self.config.priority_metrics:
-                    if not metric_names or metric not in metric_names:
-                        metric_names.append(metric)
-                    row.append(improvements.get(metric, 0))
-                improvements_data.append(row)
-
-        if improvements_data:
-            plt.figure(figsize=(12, 8))
-
-            # Создаем heatmap
-            sns.heatmap(
-                improvements_data,
-                annot=True,
-                fmt='.3f',
-                cmap='RdYlBu_r',
-                center=0,
-                xticklabels=metric_names,
-                yticklabels=classifier_names,
-                cbar_kws={'label': 'Improvement Score'}
-            )
-
-            plt.title('SMOTE Improvements Heatmap\n(Positive values = Improvement)',
-                      fontsize=14, fontweight='bold')
-            plt.xlabel('Metrics', fontweight='bold')
-            plt.ylabel('Classifiers', fontweight='bold')
-            plt.xticks(rotation=45, ha='right')
-            plt.yticks(rotation=0)
-            plt.tight_layout()
-
-            self.task.get_logger().report_matplotlib_figure(
-                "Summary Visualizations",
-                "SMOTE_Improvements_Heatmap",
-                plt,
-                iteration=1
-            )
-            plt.close()
-
-    def _create_cv_vs_final_comparison(self, cv_results, final_results, selected_classifiers):
-
-        key_metric = 'balanced_accuracy'
-
-        cv_scores = []
-        final_original_scores = []
-        final_smote_scores = []
-        classifier_names = []
-
-        for clf_name in selected_classifiers:
-            if clf_name in cv_results and clf_name in final_results:
-                classifier_names.append(clf_name)
-
-                # CV результат (среднее значение)
-                cv_mean_key = f'{key_metric}_mean'
-                cv_score = cv_results[clf_name].get(cv_mean_key, 0)
-                cv_scores.append(cv_score)
-
-                # Финальные результаты
-                original_score = final_results[clf_name]['original_data'].get(key_metric, 0)
-                smote_score = final_results[clf_name]['smote_data'].get(key_metric, 0)
-                final_original_scores.append(original_score)
-                final_smote_scores.append(smote_score)
-
-        if cv_scores:
-            fig, ax = plt.subplots(figsize=(12, 6))
-            x = np.arange(len(classifier_names))
-            width = 0.25
-
-            bars1 = ax.bar(x - width, cv_scores, width, label='CV (SMOTE)', alpha=0.8, color='gold')
-            bars2 = ax.bar(x, final_original_scores, width, label='Final (Original)', alpha=0.8, color='lightcoral')
-            bars3 = ax.bar(x + width, final_smote_scores, width, label='Final (SMOTE)', alpha=0.8, color='skyblue')
-
-            ax.set_xlabel('Classifiers', fontweight='bold')
-            ax.set_ylabel(f'{key_metric.replace("_", " ").title()}', fontweight='bold')
-            ax.set_title(f'CV vs Final Results Comparison ({key_metric.replace("_", " ").title()})',
-                         fontweight='bold')
-            ax.set_xticks(x)
-            ax.set_xticklabels(classifier_names, rotation=45, ha='right')
-            ax.legend()
-            ax.grid(axis='y', alpha=0.3)
-
-            # Добавляем значения на столбцы
-            for bars in [bars1, bars2, bars3]:
-                for bar in bars:
-                    height = bar.get_height()
-                    ax.text(bar.get_x() + bar.get_width() / 2., height + 0.005,
-                            f'{height:.3f}', ha='center', va='bottom', fontsize=9)
-
-            plt.tight_layout()
-            self.task.get_logger().report_matplotlib_figure(
-                "Summary Visualizations",
-                "CV_vs_Final_Comparison",
-                fig,
-                iteration=1
-            )
-            plt.close(fig)
-
-    def _create_smote_effectiveness_chart(self, final_results, selected_classifiers):
-        """График общей эффективности SMOTE"""
-        effectiveness_data = []
-
-        for clf_name in selected_classifiers:
-            if clf_name in final_results:
-                improvements = final_results[clf_name].get('improvement', {})
-
-                # Считаем количество положительных улучшений
-                positive_improvements = sum(
-                    1 for imp in improvements.values() if isinstance(imp, (int, float)) and imp > 0)
-                total_metrics = len([imp for imp in improvements.values() if isinstance(imp, (int, float))])
-
-                if total_metrics > 0:
-                    success_rate = positive_improvements / total_metrics * 100
-                    avg_improvement = np.mean(
-                        [imp for imp in improvements.values() if isinstance(imp, (int, float))])
-
-                    effectiveness_data.append({
-                        'Classifier': clf_name,
-                        'Success_Rate': success_rate,
-                        'Avg_Improvement': avg_improvement,
-                        'Positive_Improvements': positive_improvements,
-                        'Total_Metrics': total_metrics
-                    })
-
-        if effectiveness_data:
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-
-            # График 1: Success Rate
-            classifiers = [d['Classifier'] for d in effectiveness_data]
-            success_rates = [d['Success_Rate'] for d in effectiveness_data]
-
-            colors = ['green' if sr >= 50 else 'orange' if sr >= 25 else 'red' for sr in success_rates]
-            bars1 = ax1.bar(classifiers, success_rates, color=colors, alpha=0.7)
-            ax1.set_title('SMOTE Success Rate by Classifier', fontweight='bold')
-            ax1.set_ylabel('Success Rate (%)')
-            ax1.set_ylim(0, 100)
-            ax1.axhline(y=50, color='black', linestyle='--', alpha=0.5, label='50% threshold')
-
-            # Добавляем значения
-            for bar, rate in zip(bars1, success_rates):
-                ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 1,
-                         f'{rate:.1f}%', ha='center', va='bottom', fontweight='bold')
-
-            ax1.legend()
-            ax1.tick_params(axis='x', rotation=45)
-
-            # График 2: Average Improvement
-            avg_improvements = [d['Avg_Improvement'] for d in effectiveness_data]
-            colors2 = ['green' if ai > 0 else 'red' for ai in avg_improvements]
-            bars2 = ax2.bar(classifiers, avg_improvements, color=colors2, alpha=0.7)
-            ax2.set_title('Average SMOTE Improvement by Classifier', fontweight='bold')
-            ax2.set_ylabel('Average Improvement')
-            ax2.axhline(y=0, color='black', linestyle='-', alpha=0.5)
-
-            # Добавляем значения
-            for bar, imp in zip(bars2, avg_improvements):
-                y_pos = bar.get_height() + (0.005 if imp >= 0 else -0.015)
-                ax2.text(bar.get_x() + bar.get_width() / 2, y_pos,
-                         f'{imp:.3f}', ha='center', va='bottom' if imp >= 0 else 'top', fontweight='bold')
-
-            ax2.tick_params(axis='x', rotation=45)
-
-            plt.tight_layout()
-            self.task.get_logger().report_matplotlib_figure(
-                "Summary Visualizations",
-                "SMOTE_Effectiveness_Overview",
-                fig,
-                iteration=1
-            )
-            plt.close(fig)
-
-            # Логируем также как таблицу
-            effectiveness_df = pd.DataFrame(effectiveness_data)
-            self.task.get_logger().report_table(
-                "SMOTE Effectiveness Summary",
-                "Effectiveness_Metrics",
-                table_plot=effectiveness_df,
-                iteration=1
-            )
-
     def _save_experiment_artifacts(self, experiment_results, dataset_name, smote_algorithm):
-        # Основной файл результатов
         results_filename = f"experiment_results_{dataset_name}_{smote_algorithm.__class__.__name__}.json"
         with open(results_filename, 'w', encoding='utf-8') as f:
             json.dump(experiment_results, f, indent=2, ensure_ascii=False, default=str)
@@ -890,6 +627,6 @@ SMOTE алгоритм: {smote_algorithm.__class__.__name__}
 
     def close_task(self):
         if self.task:
-            self.task.get_logger().report_text("""=== ЭКСПЕРИМЕНТ ЗАВЕРШЕН ===""", iteration=999)
+            self.task.get_logger().report_text("""ЭКСПЕРИМЕНТ ЗАВЕРШЕН""", iteration=999)
 
             self.task.close()

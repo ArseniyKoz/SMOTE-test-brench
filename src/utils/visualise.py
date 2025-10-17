@@ -30,85 +30,11 @@ class Visualiser:
             'text': '#2C3E50'
         }
         self.show = show
+        self.clearml_task = None
+        self.iteration_counter = 1
 
-    def plot_class_distribution(self,
-                                y_original: np.ndarray,
-                                y_smote: np.ndarray = None,
-                                title: str = "Распределение классов",
-                                save_path: Optional[str] = None) -> None:
-        """
-        Визуализация распределения классов
-
-        Parameters:
-        -----------
-        y_original : np.ndarray
-            Исходные метки классов
-        y_smote : np.ndarray, optional
-            Метки классов после SMOTE
-        title : str
-            Заголовок графика
-        save_path : str, optional
-            Путь для сохранения графика
-        """
-
-        if y_smote is not None:
-            fig, axes = plt.subplots(1, 2, figsize=(15, 6), dpi=self.dpi)
-        else:
-            fig, axes = plt.subplots(1, 1, figsize=(8, 6), dpi=self.dpi)
-            axes = [axes]
-
-        counter_original = Counter(y_original)
-        classes = sorted(counter_original.keys())
-        counts_original = [counter_original[cls] for cls in classes]
-
-        bars1 = axes[0].bar(classes, counts_original,
-                            color=[self.colors['original_class_0'], self.colors['original_class_1']],
-                            alpha=0.8, edgecolor='black', linewidth=1)
-        axes[0].set_title('Исходное распределение классов', fontsize=14, fontweight='bold')
-        axes[0].set_xlabel('Классы', fontsize=12)
-        axes[0].set_ylabel('Количество образцов', fontsize=12)
-        axes[0].grid(True, alpha=0.3, axis='y')
-
-        for bar, count in zip(bars1, counts_original):
-            height = bar.get_height()
-            axes[0].text(bar.get_x() + bar.get_width() / 2., height + max(counts_original) * 0.01,
-                         f'{count}', ha='center', va='bottom', fontsize=12, fontweight='bold')
-
-        imbalance_ratio = max(counts_original) / min(counts_original)
-        axes[0].text(0.5, 0.95, f'Дисбаланс: {imbalance_ratio:.1f}:1',
-                     transform=axes[0].transAxes, ha='center', va='top',
-                     bbox=dict(boxstyle="round,pad=0.3", facecolor="yellow", alpha=0.7),
-                     fontsize=11, fontweight='bold')
-
-        if y_smote is not None:
-            counter_smote = Counter(y_smote)
-            counts_smote = [counter_smote[cls] for cls in classes]
-
-            bars2 = axes[1].bar(classes, counts_smote,
-                                color=[self.colors['original_class_0'], self.colors['original_class_1']],
-                                alpha=0.8, edgecolor='black', linewidth=1)
-            axes[1].set_title('Распределение после SMOTE', fontsize=14, fontweight='bold')
-            axes[1].set_xlabel('Классы', fontsize=12)
-            axes[1].set_ylabel('Количество образцов', fontsize=12)
-            axes[1].grid(True, alpha=0.3, axis='y')
-
-            for bar, count in zip(bars2, counts_smote):
-                height = bar.get_height()
-                axes[1].text(bar.get_x() + bar.get_width() / 2., height + max(counts_smote) * 0.01,
-                             f'{count}', ha='center', va='bottom', fontsize=12, fontweight='bold')
-
-            imbalance_ratio_smote = max(counts_smote) / min(counts_smote)
-            axes[1].text(0.5, 0.95, f'Дисбаланс: {imbalance_ratio_smote:.1f}:1',
-                         transform=axes[1].transAxes, ha='center', va='top',
-                         bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen", alpha=0.7),
-                         fontsize=11, fontweight='bold')
-
-        plt.tight_layout()
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        if self.show:
-            plt.show()
-        return fig
+    def set_clearml_task(self, task: Task) -> None:
+        self.clearml_task = task
 
     def plot_data_scatter(self,
                           X_original: np.ndarray,
@@ -118,29 +44,13 @@ class Visualiser:
                           synthetic_samples: np.ndarray = None,
                           feature_names: List[str] = None,
                           title: str = "Распределение данных",
-                          save_path: Optional[str] = None) -> None:
-        """
-        Scatter plot данных
+                          save_path: Optional[str] = None,
+                          log_to_clearml: bool = True,
+                          iteration: Optional[int] = None) -> None:
 
-        Parameters:
-        -----------
-        X_original : np.ndarray
-            Исходные данные
-        y_original : np.ndarray
-            Исходные метки
-        X_smote : np.ndarray, optional
-            Данные после SMOTE
-        y_smote : np.ndarray, optional
-            Метки после SMOTE
-        synthetic_samples : np.ndarray, optional
-            Синтетические образцы для выделения
-        feature_names : list, optional
-            Названия признаков
-        title : str
-            Заголовок
-        save_path : str, optional
-            Путь для сохранения
-        """
+        if iteration is None:
+            iteration = self.iteration_counter
+            self.iteration_counter += 1
 
         X_original_vis = X_original
         X_smote_vis = X_smote
@@ -191,6 +101,14 @@ class Visualiser:
         plt.tight_layout()
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
+        if log_to_clearml and self.clearml_task:
+            self.clearml_task.get_logger().report_matplotlib_figure(
+                title="Data Analysis",
+                series=f"Data_Scatter_{title}",
+                figure=fig,
+                iteration=iteration
+            )
 
         plt.show() if self.show else plt.close()
 
@@ -308,7 +226,7 @@ class Visualiser:
 
                     if clearml_task:
                         clearml_task.get_logger().report_scalar(
-                            title="PR_AUC Scores",
+                            title="PR AUC Scores",
                             series=f"{model_name}_{data_type}",
                             value=pr_auc,
                             iteration=iteration
@@ -343,21 +261,6 @@ class Visualiser:
                                 predictions: Dict[str, Dict[str, np.ndarray]],
                                 title: str = "Матрицы ошибок",
                                 save_path: Optional[str] = None) -> None:
-        """
-        Построение матриц ошибок
-
-        Parameters:
-        -----------
-        y_test : np.ndarray
-            Истинные метки тестовой выборки
-        predictions : dict
-            Словарь с предсказаниями в формате:
-            {model_name: {'original': y_pred, 'smote': y_pred}}
-        title : str
-            Заголовок
-        save_path : str, optional
-            Путь для сохранения
-        """
 
         models = list(predictions.keys())
         fig, axes = plt.subplots(len(models), 2, figsize=(12, 4 * len(models)), dpi=self.dpi)
@@ -396,7 +299,9 @@ class Visualiser:
                              results: Dict[str, Dict[str, Any]],
                              feature_names: List[str] = None,
                              dataset_name: str = "Dataset",
-                             save_dir: Optional[str] = None) -> None:
+                             save_dir: Optional[str] = None,
+                             clearml_task: Optional[Task] = None,
+                             iteration: int = 1) -> None:
         """
         Parameters:
         -----------
@@ -420,16 +325,18 @@ class Visualiser:
             Директория для сохранения графиков
         """
 
-        save_path_dist = f"{save_dir}/class_distribution.png" if save_dir else None
-        self.plot_class_distribution(y_original, y_smote,
-                                     title=f"Распределение классов - {dataset_name}",
-                                     save_path=save_path_dist)
-
-        save_path_scatter = f"{save_dir}/data_scatter.png" if save_dir else None
-        self.plot_data_scatter(X_original, y_original, X_smote, y_smote,
-                               synthetic_samples, feature_names,
-                               title=f"Распределение данных - {dataset_name}",
-                               save_path=save_path_scatter)
+        self.plot_data_scatter(
+            X_original=X_original,
+            y_original=y_original,
+            X_smote=X_smote,
+            y_smote=y_smote,
+            synthetic_samples=synthetic_samples,
+            feature_names=feature_names,
+            title=f"Data Distribution - {dataset_name}",
+            save_path=f"{save_dir}/data_scatter.png" if save_dir else None,
+            log_to_clearml=clearml_task is not None,
+            iteration=iteration
+        )
 
         predictions = {}
         for model_name in results.keys():
@@ -437,20 +344,29 @@ class Visualiser:
             for data_type in ['original', 'smote']:
                 if data_type in results[model_name] and 'y_pred_proba' in results[model_name][data_type]:
                     predictions[model_name][data_type] = results[model_name][data_type]['y_pred_proba']
-
+        print(predictions)
         if predictions:
+            print('gol')
             if 'y_test' in results.get(list(results.keys())[0], {}).get('original', {}):
                 y_test = results[list(results.keys())[0]]['original']['y_test']
 
-                save_path_roc = f"{save_dir}/roc_curves.png" if save_dir else None
-                self.plot_roc_curves(y_test, predictions,
-                                     title=f"ROC кривые - {dataset_name}",
-                                     save_path=save_path_roc)
+                self.plot_roc_curves(
+                    y_test=y_test,
+                    predictions=predictions,
+                    title=f"ROC Curves - {dataset_name}",
+                    clearml_task=clearml_task,
+                    iteration=iteration,
+                    save_path=f"{save_dir}/roc_curves.png" if save_dir else None
+                )
 
-                save_path_pr = f"{save_dir}/pr_curves.png" if save_dir else None
-                self.plot_precision_recall_curves(y_test, predictions,
-                                                  title=f"Precision-Recall кривые - {dataset_name}",
-                                                  save_path=save_path_pr)
+                self.plot_precision_recall_curves(
+                    y_test=y_test,
+                    predictions=predictions,
+                    title=f"Precision-Recall Curves - {dataset_name}",
+                    clearml_task=clearml_task,
+                    iteration=iteration,
+                    save_path=f"{save_dir}/pr_curves.png" if save_dir else None
+                )
 
 
 def create_quick_visualisation(X: np.ndarray,
