@@ -1,0 +1,44 @@
+Adult:
+    data_id: 77e07677143e49a39b4e4f4303099dde
+    prep_data_id:
+
+breast_cancer:
+    data_id: 6611510b8f3d4a7fa25d4d41be6b6b76
+    prep_data_id:
+
+Forest_coverage:
+    data_id: eae8452f680048eb81e62021ad94a151
+    prep_data_id:
+
+Haberman:
+    data_id: b32930d5c70e48e5a38ca75d0e6ed632
+    prep_data_id:
+
+Ionosphere:
+    data_id: f0c4d8df1c5443fcbd54fc7bc5d77ddc
+    prep_data_id:
+
+Mammography:
+    data_id: 23f0b97e9adc4203829fbf9b9282ebca
+    prep_data_id:
+
+Oil:
+    data_id: e528061a1d304e5ab313f9e6ad80e2d1
+    prep_data_id:
+
+Phoneme:
+    data_id: aef842d63d154b13a02601e543fe8baf
+    prep_data_id:
+
+Pima diabetes:
+    data_id: 18a64325a8304b5290c70a06b2c1cb68
+    prep_data_id:
+
+Satimage:
+    data_id: 60d6c0e2e51b43929257b113e742f96f
+    prep_data_id:
+
+Vehicle:
+    data_id: a0dc9a57c5cb492f8b4cec206d64365b
+    prep_data_id:
+
