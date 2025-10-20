@@ -10,7 +10,7 @@ warnings.filterwarnings('ignore')
 
 from clearml import Task
 
-from src.utils.data_loader import DataLoader
+from src.utils.data_loader import fetch_dataset, get_dataset_config
 from src.utils.preprocessing import SMOTEPreprocessor, PreprocessingConfig
 from src.evaluation.basic_evaluator import all_smote_metrics
 from src.utils.visualise import Visualiser
@@ -77,14 +77,9 @@ class ExperimentConfig:
 
         self.log_model_params = True
 
-        self.enable_data_visualisation = True
-        self.enable_class_distribution_plots = False
         self.enable_scatter_plots = True
         self.enable_roc_curves = True
         self.enable_precision_recall_curves = True
-        self.enable_confusion_matrices_plots = True
-        self.enable_metric_comparison_plots = True
-        self.enable_comprehensive_visualisation = True
 
     def get_config(self):
         config = {
@@ -126,7 +121,6 @@ class ExperimentRunner:
             self._initialize_clearml_task()
             self.logger = Task.get_logger(self.task)
 
-        self.data_loader = DataLoader()
         self.visualiser = Visualiser()
         if self.task:
             self.visualiser.set_clearml_task(self.task)
@@ -170,7 +164,12 @@ class ExperimentRunner:
             self.task.connect(experiment_params, name='current_experiment_params')
 
         data_load_start = time.time()
-        X, y = self.data_loader.load_dataset(dataset_name, **dataset_params)
+        df, metadata = fetch_dataset(dataset_name)
+        target = df.columns.tolist()[-1]
+        print(target)
+        X = df.drop([target], axis=1)
+        y = df.iloc[:, -1]
+        print(X, y)
         data_load_time = time.time() - data_load_start
 
         if self.task:
@@ -188,9 +187,6 @@ class ExperimentRunner:
             name: clf for name, clf in classifiers.items()
             if name in self.config.selected_classifiers
         }
-
-        if self.task and self.config.log_model_params:
-            self._log_model_parameters(selected_classifiers)
 
         cv_start = time.time()
         cv_results = self._cross_validation_with_smote(
@@ -249,9 +245,12 @@ class ExperimentRunner:
 
         if self.config.enable_scatter_plots and X_train.shape[1] >= 2:
             feature_names = [f'Feature {i + 1}' for i in range(X_train.shape[1])]
+            X_train_np = X_train.values if hasattr(X_train, 'values') else X_train
+            y_train_np = y_train.values if hasattr(y_train, 'values') else y_train
+
             self.visualiser.plot_data_scatter(
-                X_original=X_train,
-                y_original=y_train,
+                X_original=X_train_np,
+                y_original=y_train_np,
                 X_smote=X_train_smote,
                 y_smote=y_train_smote,
                 synthetic_samples=synthetic_samples,
@@ -318,31 +317,6 @@ class ExperimentRunner:
         logger.report_scalar("Dataset Info", "Imbalance Ratio", imbalance_ratio, iteration=0)
         logger.report_scalar("Timing", "Data Load Time", data_load_time, iteration=0)
 
-    def _log_model_parameters(self, selected_classifiers):
-        if not self.task:
-            return
-
-        logger = self.task.get_logger()
-
-        params_data = []
-        for clf_name, classifier in selected_classifiers.items():
-            params = classifier.get_params()
-            for param, value in params.items():
-                params_data.append({
-                    'Classifier': clf_name,
-                    'Parameter': param,
-                    'Value': str(value)
-                })
-
-        if params_data:
-            params_df = pd.DataFrame(params_data)
-            logger.report_table(
-                "Model Configuration",
-                "Classifier Parameters",
-                table_plot=params_df,
-                iteration=0
-            )
-
     def _cross_validation_with_smote(self,
                                      X_train: np.ndarray,
                                      y_train: np.ndarray,
@@ -368,8 +342,8 @@ class ExperimentRunner:
             for fold, (train_idx, val_idx) in enumerate(cv.split(X_train, y_train)):
                 current_iteration += 1
 
-                X_fold_train, X_fold_val = X_train[train_idx], X_train[val_idx]
-                y_fold_train, y_fold_val = y_train[train_idx], y_train[val_idx]
+                X_fold_train, X_fold_val = X_train.iloc[train_idx], X_train.iloc[val_idx]
+                y_fold_train, y_fold_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
 
                 X_fold_train_smote, y_fold_train_smote = smote_algorithm.fit_resample(
                     X_fold_train, y_fold_train
