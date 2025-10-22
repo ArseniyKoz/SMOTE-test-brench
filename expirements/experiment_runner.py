@@ -1,7 +1,7 @@
+import time
 import numpy as np
 from typing import Any, Dict
 from sklearn.model_selection import StratifiedKFold, train_test_split
-import time
 import warnings
 import json
 import pandas as pd
@@ -10,7 +10,7 @@ warnings.filterwarnings('ignore')
 
 from clearml import Task
 
-from src.utils.data_loader import fetch_dataset, get_dataset_config
+from src.utils.data_loader import fetch_dataset
 from src.utils.preprocessing import SMOTEPreprocessor, PreprocessingConfig
 from src.evaluation.basic_evaluator import all_smote_metrics
 from src.utils.visualise import Visualiser
@@ -152,7 +152,6 @@ class ExperimentRunner:
         if self.task and not self.config.clearml_task_name:
             self.task.set_name(f"SMOTE Experiment: {experiment_name}")
 
-        experiment_start = time.time()
         dataset_params = dataset_params or {}
 
         if self.task:
@@ -163,17 +162,13 @@ class ExperimentRunner:
             }
             self.task.connect(experiment_params, name='current_experiment_params')
 
-        data_load_start = time.time()
         df, metadata = fetch_dataset(dataset_name)
         target = df.columns.tolist()[-1]
-        print(target)
         X = df.drop([target], axis=1)
         y = df.iloc[:, -1]
-        print(X, y)
-        data_load_time = time.time() - data_load_start
 
         if self.task:
-            self._log_dataset_info(X, y, data_load_time)
+            self._log_dataset_info(X, y)
 
         X_train, X_test, y_train, y_test = train_test_split(
             X, y,
@@ -188,37 +183,22 @@ class ExperimentRunner:
             if name in self.config.selected_classifiers
         }
 
-        cv_start = time.time()
         cv_results = self._cross_validation_with_smote(
             X_train, y_train, smote_algorithm, selected_classifiers
         )
-        cv_time = time.time() - cv_start
 
-        final_eval_start = time.time()
         final_results = self._final_evaluation(
             X_train, y_train, X_test, y_test, smote_algorithm, selected_classifiers, dataset_name=dataset_name
         )
-        final_eval_time = time.time() - final_eval_start
-
-        experiment_time = time.time() - experiment_start
+        self._create_metrics_summary_table(final_results, dataset_name, smote_algorithm)
 
         self._create_results_visualisations(final_results, y_test, dataset_name, smote_algorithm)
-
-        if self.task:
-            logger = self.task.get_logger()
-            logger.report_scalar("Timing", "Total Experiment Time", experiment_time, iteration=1)
-            logger.report_scalar("Timing", "Data Loading Time", data_load_time, iteration=1)
-            logger.report_scalar("Timing", "Cross Validation Time", cv_time, iteration=1)
-            logger.report_scalar("Timing", "Final Evaluation Time", final_eval_time, iteration=1)
 
         experiment_results = {
             'metadata': {
                 'dataset_name': dataset_name,
                 'algorithm_name': smote_algorithm.__class__.__name__,
                 'dataset_params': dataset_params,
-                'experiment_time': experiment_time,
-                'cv_time': cv_time,
-                'final_eval_time': final_eval_time,
                 'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
                 'clearml_task_id': self.task.id if self.task else None
             },
@@ -255,7 +235,6 @@ class ExperimentRunner:
                 y_smote=y_train_smote,
                 synthetic_samples=synthetic_samples,
                 feature_names=feature_names,
-                title=f"SMOTE Effect on Data - {dataset_name}",
                 log_to_clearml=True,
                 iteration=2
             )
@@ -303,7 +282,7 @@ class ExperimentRunner:
                 iteration=3
             )
 
-    def _log_dataset_info(self, X, y, data_load_time):
+    def _log_dataset_info(self, X, y):
         if not self.task:
             return
 
@@ -315,7 +294,6 @@ class ExperimentRunner:
         logger.report_scalar("Dataset Info", "Features", X.shape[1], iteration=0)
         logger.report_scalar("Dataset Info", "Classes", len(class_dist), iteration=0)
         logger.report_scalar("Dataset Info", "Imbalance Ratio", imbalance_ratio, iteration=0)
-        logger.report_scalar("Timing", "Data Load Time", data_load_time, iteration=0)
 
     def _cross_validation_with_smote(self,
                                      X_train: np.ndarray,
@@ -330,7 +308,6 @@ class ExperimentRunner:
         )
 
         cv_results = {}
-        total_iterations = len(classifiers) * self.config.cv_folds
         current_iteration = 0
 
         all_fold_results = []
@@ -373,14 +350,9 @@ class ExperimentRunner:
                         iteration=current_iteration
                     )
 
-                fold_start_time = time.time()
                 classifier.fit(X_fold_train_smote, y_fold_train_smote)
-                fold_train_time = time.time() - fold_start_time
 
-                pred_start_time = time.time()
                 y_pred = classifier.predict(X_fold_val)
-                pred_time = time.time() - pred_start_time
-
                 y_pred_proba = None
                 if hasattr(classifier, 'predict_proba'):
                     y_pred_proba = classifier.predict_proba(X_fold_val)[:, 1]
@@ -396,8 +368,6 @@ class ExperimentRunner:
                 fold_result = {
                     'Classifier': clf_name,
                     'Fold': fold + 1,
-                    'Train_Time': fold_train_time,
-                    'Prediction_Time': pred_time,
                     'Train_Samples': len(y_fold_train_smote),
                     'Val_Samples': len(y_fold_val)
                 }
@@ -414,13 +384,6 @@ class ExperimentRunner:
                                 fold_metrics[metric],
                                 iteration=fold + 1
                             )
-
-                    logger.report_scalar(
-                        f"CV Timing - {clf_name}",
-                        "Training Time per Fold",
-                        fold_train_time,
-                        iteration=fold + 1
-                    )
 
             cv_results[clf_name] = {}
             for metric in self.config.priority_metrics:
@@ -446,15 +409,6 @@ class ExperimentRunner:
                             iteration=1
                         )
 
-        if self.task and all_fold_results:
-            cv_df = pd.DataFrame(all_fold_results)
-            logger.report_table(
-                "Cross Validation Details",
-                "All Folds Results",
-                table_plot=cv_df,
-                iteration=1
-            )
-
         return cv_results
 
     def _final_evaluation(self,
@@ -463,25 +417,20 @@ class ExperimentRunner:
                           smote_algorithm: Any,
                           classifiers: Dict[str, Any],
                           dataset_name: str) -> Dict[str, Any]:
-        smote_start = time.time()
+
         X_train_smote, y_train_smote = smote_algorithm.fit_resample(X_train, y_train)
-        smote_time = time.time() - smote_start
 
         final_results = {}
 
         for clf_name, classifier in classifiers.items():
 
-            orig_start = time.time()
             classifier_original = type(classifier)(**classifier.get_params())
             classifier_original.fit(X_train, y_train)
             y_pred_original = classifier_original.predict(X_test)
-            orig_time = time.time() - orig_start
 
-            smote_model_start = time.time()
             classifier_smote = type(classifier)(**classifier.get_params())
             classifier_smote.fit(X_train_smote, y_train_smote)
             y_pred_smote = classifier_smote.predict(X_test)
-            smote_model_time = time.time() - smote_model_start
 
             y_pred_proba_original = None
             y_pred_proba_smote = None
@@ -515,18 +464,10 @@ class ExperimentRunner:
                     'y_pred_proba': y_pred_proba_smote,
                 },
                 'improvement': improvements,
-                'timing': {
-                    'original_train_time': orig_time,
-                    'smote_train_time': smote_model_time
-                }
             }
 
             if self.task:
                 logger = self.task.get_logger()
-
-                logger.report_scalar("Final Test Timing", f"{clf_name}_Original_Time", orig_time, iteration=1)
-                logger.report_scalar("Final Test Timing", f"{clf_name}_SMOTE_Time", smote_model_time, iteration=1)
-
                 for metric in self.config.priority_metrics:
                     if metric in metrics_original:
                         logger.report_scalar(
@@ -559,6 +500,44 @@ class ExperimentRunner:
                                                 dataset_name=dataset_name)
 
         return final_results
+
+    def _create_metrics_summary_table(self, final_result: Dict[str, Any], dataset_name: str,
+                                      smote_algorithm_name: str, iteration: int = 1) -> pd.DataFrame:
+        table_data = []
+
+        for clf_name, clf_results in final_result.items():
+            original_data = clf_results.get('original_data', {})
+            smote_data = clf_results.get('smote_data', {})
+            improvements = clf_results.get('improvement', {})
+
+            for metric in self.config.priority_metrics:
+                if metric in original_data and metric in smote_data:
+                    orig_val = original_data[metric]
+                    smote_val = smote_data[metric]
+                    improv = improvements.get(metric, 0)
+                    improv_pct = (improv / orig_val * 100) if orig_val != 0 else 0
+
+                    table_data.append({
+                        'Classifier': clf_name,
+                        'Metric': metric,
+                        'Original': round(orig_val, 4),
+                        f'{smote_algorithm_name}': round(smote_val, 4),
+                        'Delta_Absolute': round(improv, 4),
+                        'Delta_Percent': round(improv_pct, 2)
+                    })
+
+        df = pd.DataFrame(table_data)
+
+        if self.task:
+            logger = self.task.get_logger()
+            logger.report_table(
+                title=f"Metrics Summary - {smote_algorithm_name}",
+                series=dataset_name,
+                iteration=iteration,
+                table_plot=df
+            )
+
+        return df
 
     def _save_experiment_artifacts(self, experiment_results, dataset_name, smote_algorithm):
         results_filename = f"experiment_results_{dataset_name}_{smote_algorithm.__class__.__name__}.json"
@@ -601,6 +580,4 @@ class ExperimentRunner:
 
     def close_task(self):
         if self.task:
-            self.task.get_logger().report_text("""ЭКСПЕРИМЕНТ ЗАВЕРШЕН""", iteration=999)
-
             self.task.close()
