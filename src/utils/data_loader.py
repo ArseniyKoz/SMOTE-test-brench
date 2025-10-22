@@ -31,7 +31,6 @@ def fetch_dataset(dataset_name: str, max_workers: int = 8):
         data = pd.read_csv(f"{local_path}/{dataset_name}.csv")
 
         metadata = dataset.get_metadata()
-        print(data)
         return data, metadata
 
     except Exception as e:
