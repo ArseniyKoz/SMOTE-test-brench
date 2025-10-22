@@ -99,7 +99,7 @@ class ExperimentConfig:
             'ClearML tags': self.clearml_tags,
             'Auto log artifacts': self.auto_log_artifacts,
 
-            'Log model params': self.log_model_params,
+            'Log methods params': self.log_model_params,
 
             'Enable scatter plots': self.enable_scatter_plots,
             'Enable ROC curves': self.enable_roc_curves,
@@ -221,7 +221,7 @@ class ExperimentRunner:
 
     def _create_data_scatter_visualisation(self, X_train: np.ndarray, y_train: np.ndarray,
                                            X_train_smote: np.ndarray, y_train_smote: np.ndarray,
-                                           synthetic_samples: np.ndarray, dataset_name: str):
+                                           synthetic_samples: np.ndarray):
 
         if self.config.enable_scatter_plots and X_train.shape[1] >= 2:
             feature_names = [f'Feature {i + 1}' for i in range(X_train.shape[1])]
@@ -229,6 +229,17 @@ class ExperimentRunner:
             y_train_np = y_train.values if hasattr(y_train, 'values') else y_train
 
             self.visualiser.plot_data_scatter(
+                X_original=X_train_np,
+                y_original=y_train_np,
+                X_smote=X_train_smote,
+                y_smote=y_train_smote,
+                synthetic_samples=synthetic_samples,
+                feature_names=feature_names,
+                log_to_clearml=True,
+                iteration=2
+            )
+
+            self.visualiser.plot_data_scatter_tsne(
                 X_original=X_train_np,
                 y_original=y_train_np,
                 X_smote=X_train_smote,
@@ -496,8 +507,7 @@ class ExperimentRunner:
         synthetic_samples = X_train_smote[n_original:] if len(X_train_smote) > n_original else None
 
         self._create_data_scatter_visualisation(X_train, y_train, X_train_smote, y_train_smote,
-                                                synthetic_samples,
-                                                dataset_name=dataset_name)
+                                                synthetic_samples)
 
         return final_results
 

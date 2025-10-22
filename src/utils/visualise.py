@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from clearml import Task
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 from sklearn.metrics import precision_recall_curve, roc_curve, auc
 from sklearn.preprocessing import StandardScaler
 import plotly.graph_objects as go
@@ -134,6 +135,116 @@ class Visualiser:
 
         return X_original_vis, pca_model
 
+    def plot_data_scatter_tsne(self,
+                               X_original: np.ndarray,
+                               y_original: np.ndarray,
+                               X_smote: np.ndarray = None,
+                               y_smote: np.ndarray = None,
+                               synthetic_samples: np.ndarray = None,
+                               feature_names: List[str] = None,
+                               log_to_clearml: bool = True,
+                               iteration: Optional[int] = None,
+                               use_tsne: bool = True,
+                               tsne_params: dict = None) -> Tuple[np.ndarray, Optional[TSNE]]:
+
+        if iteration is None:
+            iteration = self.iteration_counter
+            self.iteration_counter += 1
+
+        n_features = X_original.shape[1]
+        tsne_model = None
+
+        if tsne_params is None:
+            tsne_params = {
+                'n_components': 2,
+                'perplexity': 30,
+                'learning_rate': 200,
+                'max_iter': 1000,
+                'random_state': 42,
+                'verbose': 0
+            }
+
+        if n_features != 2 and use_tsne:
+
+            scaler = StandardScaler()
+            X_original_scaled = scaler.fit_transform(X_original)
+
+            tsne_model = TSNE(**tsne_params)
+
+            if synthetic_samples is not None and len(synthetic_samples) > 0:
+
+                synthetic_samples_scaled = scaler.transform(synthetic_samples)
+                all_data = np.vstack([X_original_scaled, synthetic_samples_scaled])
+                all_vis = tsne_model.fit_transform(all_data)
+
+                X_original_vis = all_vis[:len(X_original_scaled)]
+                synthetic_samples_vis = all_vis[len(X_original_scaled):]
+            else:
+                X_original_vis = tsne_model.fit_transform(X_original_scaled)
+                synthetic_samples_vis = None
+
+            if X_smote is not None:
+                X_smote_scaled = scaler.transform(X_smote)
+                combined = np.vstack([X_original_scaled, X_smote_scaled])
+                combined_vis = TSNE(**tsne_params).fit_transform(combined)
+                X_smote_vis = combined_vis[len(X_original_scaled):]
+            else:
+                X_smote_vis = None
+
+            feature_names = ['Feature 1', 'Feature 2']
+
+        elif n_features == 2:
+            X_original_vis = X_original
+            X_smote_vis = X_smote
+            synthetic_samples_vis = synthetic_samples
+
+            if feature_names is None:
+                feature_names = [f'Признак {i + 1}' for i in range(2)]
+
+        if log_to_clearml and self.clearml_task:
+            logger = self.clearml_task.get_logger()
+            unique_classes = np.unique(y_original)
+
+            for class_label in unique_classes:
+                mask = (y_original == class_label)
+                scatter_data = X_original_vis[mask]
+                logger.report_scatter2d(
+                    title="Original Distribution TSNE",
+                    series=f"Class_{class_label}",
+                    iteration=iteration,
+                    scatter=scatter_data,
+                    xaxis=feature_names[0],
+                    yaxis=feature_names[1],
+                    mode='markers'
+                )
+
+            if X_smote_vis is not None:
+                for class_label in unique_classes:
+                    mask = (y_original == class_label)
+                    scatter_data = X_original_vis[mask]
+                    logger.report_scatter2d(
+                        title="Original + SMOTE TSNE",
+                        series=f"Original_Class_{class_label}",
+                        iteration=iteration,
+                        scatter=scatter_data,
+                        xaxis=feature_names[0],
+                        yaxis=feature_names[1],
+                        mode='markers'
+                    )
+
+            if synthetic_samples_vis is not None and len(synthetic_samples_vis) > 0:
+                logger.report_scatter2d(
+                    title="Original + SMOTE TSNE",
+                    series="Synthetic_Samples",
+                    iteration=iteration,
+                    scatter=synthetic_samples_vis,
+                    xaxis=feature_names[0],
+                    yaxis=feature_names[1],
+                    mode='markers'
+                )
+
+        return X_original_vis, tsne_model
+
     def plot_roc_curves(self,
                         y_test: np.ndarray,
                         predictions: Dict[str, Dict[str, np.ndarray]],
@@ -231,4 +342,3 @@ class Visualiser:
             iteration=iteration,
             figure=fig
         )
-
