@@ -1,0 +1,80 @@
+SMOTE:
+    method: sv.SMOTE()
+
+Borderline_SMOTE1:
+    method: sv.Borderline_SMOTE1()
+
+ADASYN:
+    method: sv.ADASYN()
+
+distance_SMOTE:
+    method: sv.distance_SMOTE()
+
+Safe_Level_SMOTE:
+    method: sv.Safe_Level_SMOTE()
+
+MSMOTE:
+    method: sv.MSMOTE()
+
+SMBOND:
+    method: sv.SMOBD()
+
+SL_graph_SMOTE:
+    method: sv.SL_graph_SMOTE()
+
+LVQ_SMOTE:
+    method: sv.LVQ_SMOTE()
+
+ROSE:
+    method: sv.ROSE()
+
+MWMOTE:
+    method: sv.MWMOTE()
+
+V_SYNTH:
+    method: sv.V_SYNTH()
+
+SMOTE_D:
+    method: sv.SMOTE_D()
+
+CURE_SMOTE:
+    method: sv.CURE_SMOTE()
+
+ASMOBD:
+    method: sv.ASMOBD()
+
+G_SMOTE:
+    method: sv.G_SMOTE()
+
+MDO:
+    method: sv.MDO()
+
+Random_SMOTE:
+    method: sv.Random_SMOTE()
+
+GASMOTE:
+    method: sv.GASMOTE()
+
+SSO:
+    method: sv.SSO()
+
+NDO_sampling:
+    method: sv.NDO_sampling()
+
+Gaussian_SMOTE:
+    method: sv.Gaussian_SMOTE()
+
+Supervised_SMOTE:
+    method: sv.Supervised_SMOTE()
+
+CCR:
+    method: sv.CCR()
+
+ANS:
+    method: sv.ANS()
+
+cluster_SMOTE:
+    method: sv.cluster_SMOTE()
+
+SYMPROD:
+    method: sv.SYMPROD()

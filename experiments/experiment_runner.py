@@ -5,6 +5,9 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 import warnings
 import json
 import pandas as pd
+import smote_variants as sv
+
+from configs.config_loader import ConfigLoader
 
 warnings.filterwarnings('ignore')
 
@@ -72,7 +75,7 @@ class ExperimentConfig:
 
         self.clearml_project_name = "SMOTE Test Bench"
         self.clearml_task_name = None
-        self.clearml_tags = ["smote", "comparison", "benchmark"]
+        self.clearml_tags = ["smote", "benchmark"]
         self.auto_log_artifacts = True
 
         self.log_model_params = True
@@ -111,7 +114,8 @@ class ExperimentConfig:
 class ExperimentRunner:
     def __init__(self,
                  config: ExperimentConfig = None,
-                 create_clearml_task: bool = True):
+                 create_clearml_task: bool = True,
+                 clearml_task: Task = None):
 
         self.config = config or ExperimentConfig()
         self.create_clearml_task = create_clearml_task
@@ -120,6 +124,8 @@ class ExperimentRunner:
         if create_clearml_task:
             self._initialize_clearml_task()
             self.logger = Task.get_logger(self.task)
+        else:
+            self.task = clearml_task
 
         self.visualiser = Visualiser()
         if self.task:
@@ -218,6 +224,98 @@ class ExperimentRunner:
             self._save_experiment_artifacts(experiment_results, dataset_name, smote_algorithm)
 
         return experiment_results
+
+    def per_dataset_experiment(self,
+                               dataset_name: str,
+                               dataset_params: Dict = None,
+                               config_name: str = None) -> Dict[str, Any]:
+
+        experiment_name = f"{dataset_name}"
+
+        if self.task and not self.config.clearml_task_name:
+            self.task.set_name(experiment_name)
+
+        dataset_params = dataset_params or {}
+
+        if self.task:
+            experiment_params = {
+                'dataset_name': dataset_name,
+                'dataset_params': dataset_params,
+                'config_name': config_name
+            }
+            self.task.connect(experiment_params, name='dataset_experiment_params')
+
+        loader = ConfigLoader(config_name)
+        cfg = loader.load()
+
+        oversamplers_names = list(cfg['methods'])
+
+        oversamplers_config_name = 'methods.yaml'
+        oversamplers_loader = ConfigLoader(oversamplers_config_name)
+        oversamplers_config = oversamplers_loader.load()
+
+        subtasks = []
+        subtask_ids = []
+
+        for idx, oversampler_name in enumerate(oversamplers_names):
+            oversampler = oversamplers_config[oversampler_name]
+
+            subtask = self.task.create_function_task(
+                func=self._run_experiment_in_subtask,
+                func_name=f'{oversampler_name}_{idx}',
+                task_name=f'{dataset_name}+{oversampler_name}',
+                dataset_name=dataset_name,
+                oversampler=oversampler,
+                config_dict=self.config.get_config(),
+                parent_task_id=self.task.id
+            )
+
+            subtask.set_parent(self.task.id)
+
+            Task.enqueue(subtask, queue_name='default')
+
+            subtasks.append(subtask)
+            subtask_ids.append(subtask.id)
+
+
+    @staticmethod
+    def _run_experiment_in_subtask(dataset_name: str,
+                                   oversampler,
+                                   config_dict: Dict,
+                                   parent_task_id: str) -> Dict[str, Any]:
+
+        from clearml import Task
+        import smote_variants as sv
+
+        current_task = Task.current_task()
+
+        config = ExperimentConfig()
+
+        if isinstance(config_dict, dict):
+            config.cv_folds = config_dict.get('cv_folds', 5)
+            config.random_runs = config_dict.get('Runs number', 3)
+            config.test_size = config_dict.get('Test size', 0.2)
+            config.random_state = config_dict.get('Random state', 42)
+            config.priority_metrics = config_dict.get('Priority metrics', [
+                'balanced_accuracy', 'f1_weighted', 'g_mean',
+                'roc_auc_weighted', 'precision_weighted', 'recall_weighted'
+            ])
+            config.selected_classifiers = config_dict.get('Classifiers', [
+                'RandomForest', 'LogisticRegression', 'DecisionTree'
+            ])
+
+        runner = ExperimentRunner(
+            config=config,
+            create_clearml_task=False,
+            clearml_task=current_task
+        )
+
+        results = runner.run_single_experiment(
+            dataset_name=dataset_name,
+            smote_algorithm=oversampler
+        )
+
+        return results
 
     def _create_data_scatter_visualisation(self, X_train: np.ndarray, y_train: np.ndarray,
                                            X_train_smote: np.ndarray, y_train_smote: np.ndarray,

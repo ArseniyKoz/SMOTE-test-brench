@@ -1,0 +1,30 @@
+
+dataset: Phoneme
+
+methods:
+      SMOTE:
+          params: {}
+      Borderline_SMOTE1:
+          params: {}
+      ADASYN:
+          params: {}
+      distance_SMOTE:
+          params: {}
+      Safe_Level_SMOTE:
+          params: {}
+      GASMOTE:
+          params: {}
+
+experiment_config:
+    cv_folds: 10
+    random_runs: 3
+    test_size: 0.2
+    random_state: 42
+    priority_metrics: [
+      'balanced_accuracy', 'f1_weighted', 'g_mean',
+      'roc_auc_weighted', 'precision_weighted', 'recall_weighted'
+      ]
+    selected_classifiers: [
+      'RandomForest', 'LogisticRegression'
+      ]
+
