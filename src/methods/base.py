@@ -1,6 +1,3 @@
-"""
-Базовый класс для всех методов SMOTE
-"""
 from abc import ABC, abstractmethod
 import numpy as np
 from sklearn.base import BaseEstimator
@@ -12,18 +9,11 @@ import logging
 
 
 class BaseSMOTE(BaseEstimator, ABC):
-    """
-    Базовый абстрактный класс для всех реализаций SMOTE
-    """
 
     def __init__(self,
                  sampling_strategy: str = 'auto',
                  random_state: Optional[int] = None):
-        """
-        sampling_strategy : str, default='auto'
-            - 'auto': балансирует все классы до размера мажоритарного класса
-        random_state : int, default=None
-        """
+
         self.sampling_strategy = sampling_strategy
         self.random_state = random_state
 
@@ -34,27 +24,9 @@ class BaseSMOTE(BaseEstimator, ABC):
 
     @abstractmethod
     def fit_resample(self, X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Основной метод для применения SMOTE алгоритмов
-
-        Параметры:
-        ----------
-        X : np.ndarray
-            Входные данные
-        y : np.ndarray
-            Целевые метки
-
-        Возвращает:
-        -----------
-        X_resampled : np.ndarray
-            Пересемплированные данные
-        y_resampled : np.ndarray  
-            Пересемплированные метки
-        """
         pass
 
     def get_method_info(self) -> Dict[str, Any]:
-        """Возвращает информацию о методе"""
         return {
             'name': self.__class__.__name__,
             'category': getattr(self, 'category', 'unknown'),
@@ -67,22 +39,10 @@ class BaseSMOTE(BaseEstimator, ABC):
         }
 
     def _validate_input(self, X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Валидация входных данных"""
         X, y = check_X_y(X, y, dtype=np.float32, accept_sparse=False)
         return X, y
 
     def _calculate_target_counts(self, class_counts: Counter) -> Dict[int, int]:
-        """
-        Вычисляет количество образцов, которое нужно сгенерировать для каждого класса
-        Параметры:
-        ----------
-        class_counts : Counter
-            Количество образцов в каждом классе
-        Возвращает:
-        -----------
-        target_counts : dict
-            Словарь {class_label: количество образцов для генерации}
-        """
         target_counts = {}
         if self.sampling_strategy == 'auto':
             majority_count = max(class_counts.values())
@@ -92,7 +52,6 @@ class BaseSMOTE(BaseEstimator, ABC):
         return target_counts
 
     def _time_execution(func):
-        """Декоратор для измерения времени выполнения"""
 
         def wrapper(self, *args, **kwargs):
             start_time = time.time()
