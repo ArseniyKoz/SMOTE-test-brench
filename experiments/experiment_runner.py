@@ -236,29 +236,9 @@ class ExperimentRunner:
                                dataset_name: str,
                                dataset_params: Optional[Dict] = None,
                                config_name: Optional[str] = None
-                               ) -> Dict[str, Any]:
+                               ):
 
         dataset_project_name = f"{self.config.clearml_project_name}/{dataset_name}"
-
-        if self.task is None or self.mode != 'dataset':
-            Task.add_requirements('requirements.txt')
-            self.task = Task.init(
-                project_name=dataset_project_name,
-                task_name=f"Dataset Experiments: {dataset_name}",
-                tags=self.config.clearml_tags + ["dataset-coordinator"]
-            )
-            self.logger = self.task.get_logger()
-
-        dataset_params = dataset_params or {}
-
-        if self.task:
-            experiment_params = {
-                'dataset_name': dataset_name,
-                'dataset_params': dataset_params,
-                'config_name': config_name,
-                'mode': 'dataset_experiments'
-            }
-            self.task.connect(experiment_params, name='dataset_experiment_params')
 
         loader = ConfigLoader(config_name)
         cfg = loader.load()
@@ -268,96 +248,64 @@ class ExperimentRunner:
         oversamplers_loader = ConfigLoader(oversamplers_config_name)
         oversamplers_config = oversamplers_loader.load()
 
-        subtask_info = []
-
         for idx, oversampler_name in enumerate(oversamplers_names):
-            oversampler = oversamplers_config[oversampler_name]
+            oversampler = eval(oversamplers_config[oversampler_name]['method'])
 
             algorithm_task_name = f"{oversampler_name}"
-            subtask = self.task.create_function_task(
-                func=self._run_experiment_in_subtask,
-                func_name=f'{oversampler_name}_{idx}',
-                task_name=algorithm_task_name,
+            config_dict = self.config.get_config()
+
+            Task.add_requirements('requirements.txt')
+            if idx == 0:
+                self.task = Task.init(
+                    project_name=dataset_project_name,
+                    task_name=f"{algorithm_task_name}",
+                    tags=self.config.clearml_tags + [algorithm_task_name]
+                )
+            else:
+                self.task = Task.create(
+                    project_name=dataset_project_name,
+                    task_name=f"{algorithm_task_name}",
+                    add_task_init_call=True
+                )
+            self.logger = self.task.get_logger()
+
+            dataset_params = dataset_params or {}
+
+            if self.task:
+                experiment_params = {
+                    'dataset_name': dataset_name,
+                    'dataset_params': dataset_params,
+                    'config_name': config_name,
+                    'mode': 'dataset_experiments'
+                }
+                self.task.connect(experiment_params, name='dataset_experiment_params')
+
+            config = ExperimentConfig()
+            if isinstance(config_dict, dict):
+                config.cv_folds = config_dict.get('Folds number', 5)
+                config.random_runs = config_dict.get('Runs number', 3)
+                config.test_size = config_dict.get('Test size', 0.2)
+                config.random_state = config_dict.get('Random state', 42)
+                config.priority_metrics = config_dict.get('Priority metrics', [
+                    'balanced_accuracy', 'f1_weighted', 'g_mean',
+                    'roc_auc_weighted', 'precision_weighted', 'recall_weighted'
+                ])
+                config.selected_classifiers = config_dict.get('Classifiers', [
+                    'RandomForest', 'LogisticRegression', 'SVM'
+                ])
+
+            current_task = self.task
+
+            runner = ExperimentRunner(
+                config=config,
+                create_clearml_task=False,
+                clearml_task=current_task
+            )
+
+            results = runner.run_single_experiment(
                 dataset_name=dataset_name,
-                oversampler=oversampler,
-                config_dict=self.config.get_config(),
-                parent_task_id=self.task.id
+                smote_algorithm=oversampler,
             )
-
-            subtask.set_packages('requirements.txt')
-            subtask.set_parent(self.task.id)
-
-            subtask_tags = self.config.clearml_tags + [
-                f"dataset:{dataset_name}",
-                f"algorithm:{oversampler_name}"
-            ]
-            for tag in subtask_tags:
-                subtask.add_tags(tag)
-
-            Task.enqueue(subtask, queue_name='default')
-            subtask_info.append({
-                'task_id': subtask.id,
-                'task_name': algorithm_task_name,
-                'algorithm': oversampler_name,
-                'status': 'enqueued'
-            })
-
-        if self.task:
-            self.logger.report_text(
-                f"Created {len(subtask_info)} subtasks for dataset {dataset_name}"
-            )
-
-            subtask_df = pd.DataFrame(subtask_info)
-            subtask_json = subtask_df.to_json(orient='records', indent=2)
-            self.task.upload_artifact(
-                'subtasks_info',
-                artifact_object=subtask_json
-            )
-
-        return {
-            'dataset_name': dataset_name,
-            'parent_task_id': self.task.id,
-            'num_algorithms': len(oversamplers_names),
-            'subtasks': subtask_info
-        }
-
-    @staticmethod
-    def _run_experiment_in_subtask(dataset_name: str,
-                                   oversampler,
-                                   config_dict: Dict,
-                                   parent_task_id: str
-                                   ) -> Dict[str, Any]:
-        from clearml import Task
-
-        current_task = Task.current_task()
-
-        config = ExperimentConfig()
-        if isinstance(config_dict, dict):
-            config.cv_folds = config_dict.get('Folds number', 5)
-            config.random_runs = config_dict.get('Runs number', 3)
-            config.test_size = config_dict.get('Test size', 0.2)
-            config.random_state = config_dict.get('Random state', 42)
-            config.priority_metrics = config_dict.get('Priority metrics', [
-                'balanced_accuracy', 'f1_weighted', 'g_mean',
-                'roc_auc_weighted', 'precision_weighted', 'recall_weighted'
-            ])
-            config.selected_classifiers = config_dict.get('Classifiers', [
-                'RandomForest', 'LogisticRegression', 'DecisionTree'
-            ])
-
-        runner = ExperimentRunner(
-            config=config,
-            create_clearml_task=False,
-            clearml_task=current_task
-        )
-
-        results = runner.run_single_experiment(
-            dataset_name=dataset_name,
-            smote_algorithm=oversampler,
-            parent_task_id=parent_task_id
-        )
-
-        return results
 
     def _create_data_scatter_visualisation(self, X_train: np.ndarray, y_train: np.ndarray,
                                            X_train_smote: np.ndarray, y_train_smote: np.ndarray,
@@ -467,8 +415,8 @@ class ExperimentRunner:
             for fold, (train_idx, val_idx) in enumerate(cv.split(X_train, y_train)):
                 current_iteration += 1
 
-                X_fold_train, X_fold_val = X_train.iloc[train_idx], X_train.iloc[val_idx]
-                y_fold_train, y_fold_val = y_train.iloc[train_idx], y_train.iloc[val_idx]
+                X_fold_train, X_fold_val = X_train.iloc[train_idx].values, X_train.iloc[val_idx].values
+                y_fold_train, y_fold_val = y_train.iloc[train_idx].values, y_train.iloc[val_idx].values
 
                 X_fold_train_smote, y_fold_train_smote = smote_algorithm.fit_resample(
                     X_fold_train, y_fold_train
@@ -569,7 +517,7 @@ class ExperimentRunner:
                           dataset_name: str
                           ) -> Dict[str, Any]:
 
-        X_train_smote, y_train_smote = smote_algorithm.fit_resample(X_train, y_train)
+        X_train_smote, y_train_smote = smote_algorithm.fit_resample(X_train.values, y_train.values)
 
         final_results = {}
 

@@ -1,0 +1,55 @@
+methods:
+      SMOTE:
+          params: {}
+      Borderline_SMOTE1:
+          params: {}
+      ADASYN:
+          params: {}
+      distance_SMOTE:
+          params: {}
+      Safe_Level_SMOTE:
+          params: {}
+      MSMOTE:
+          params: {}
+      SMBOND:
+          params: {}
+      SL_graph_SMOTE:
+          params: {}
+      LVQ_SMOTE:
+          params: {}
+      ROSE:
+          params: {}
+      MWMOTE:
+          params: {}
+      V_SYNTH:
+          params: {}
+      SMOTE_D:
+          params: {}
+      CURE_SMOTE:
+          params: {}
+      ASMOBD:
+          params: {}
+      G_SMOTE:
+          params: {}
+      MDO:
+          params: {}
+      Random_SMOTE:
+          params: {}
+      GASMOTE:
+          params: {}
+      SSO:
+          params: {}
+      NDO_sampling:
+          params: {}
+      Gaussian_SMOTE:
+          params: {}
+      Supervised_SMOTE:
+          params: {}
+      CCR:
+          params: {}
+      ANS:
+          params: {}
+      cluster_SMOTE:
+          params: {}
+      SYMPROD:
+          params: {}

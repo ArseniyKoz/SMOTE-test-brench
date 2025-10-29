@@ -21,7 +21,7 @@ def main():
     )
 
     results = runner.per_dataset_experiment(
-        dataset_name='abalone',
+        dataset_name=cfg['dataset'],
         config_name=config_name
     )
 
