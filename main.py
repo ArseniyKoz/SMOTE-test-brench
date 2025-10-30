@@ -25,8 +25,6 @@ def main():
         config_name=config_name
     )
 
-    runner.close_task()
-
 
 if __name__ == "__main__":
     main()

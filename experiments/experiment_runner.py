@@ -27,7 +27,11 @@ class ClassifierPool:
         from sklearn.linear_model import LogisticRegression
         from sklearn.naive_bayes import GaussianNB
         from sklearn.tree import DecisionTreeClassifier
+        from catboost import CatBoostClassifier
         return {
+            'CatBoost': CatBoostClassifier(
+                random_state=self.random_state
+            ),
             'RandomForest': RandomForestClassifier(
                 n_estimators=100,
                 random_state=self.random_state
@@ -232,16 +236,16 @@ class ExperimentRunner:
 
         return experiment_results
 
-    def per_dataset_experiment(self,
-                               dataset_name: str,
-                               dataset_params: Optional[Dict] = None,
-                               config_name: Optional[str] = None
-                               ):
+    def per_dataset_experiment(self, config_name: str):
 
-        dataset_project_name = f"{self.config.clearml_project_name}/{dataset_name}"
+        general_results = []
 
         loader = ConfigLoader(config_name)
         cfg = loader.load()
+        dataset_name = cfg['dataset']
+        dataset_params = cfg['dataset params']
+        dataset_project_name = f"{self.config.clearml_project_name}/{dataset_name}"
+
         oversamplers_names = list(cfg['methods'])
 
         oversamplers_config_name = 'methods.yaml'
@@ -255,18 +259,11 @@ class ExperimentRunner:
             config_dict = self.config.get_config()
 
             Task.add_requirements('requirements.txt')
-            if idx == 0:
-                self.task = Task.init(
-                    project_name=dataset_project_name,
-                    task_name=f"{algorithm_task_name}",
-                    tags=self.config.clearml_tags + [algorithm_task_name]
-                )
-            else:
-                self.task = Task.create(
-                    project_name=dataset_project_name,
-                    task_name=f"{algorithm_task_name}",
-                    add_task_init_call=True
-                )
+            self.task = Task.init(
+                project_name=dataset_project_name,
+                task_name=f"{algorithm_task_name}",
+                tags=[f'{dataset_name}', f'{algorithm_task_name}'],
+            )
             self.logger = self.task.get_logger()
 
             dataset_params = dataset_params or {}
@@ -306,6 +303,79 @@ class ExperimentRunner:
                 dataset_name=dataset_name,
                 smote_algorithm=oversampler,
             )
+
+            general_results.append(results)
+
+            self.close_task()
+
+    def per_method_experiment(self, config_name: str):
+
+        general_results = []
+
+        loader = ConfigLoader(config_name)
+        cfg = loader.load()
+        oversampler_name = cfg['method']
+        oversampler_params = cfg['method_params']
+
+        method_project_name = f"{self.config.clearml_project_name}/{oversampler_name}"
+
+        oversamplers_config_name = 'methods.yaml'
+        oversamplers_loader = ConfigLoader(oversamplers_config_name)
+        oversamplers_config = oversamplers_loader.load()
+        oversampler = eval(oversamplers_config[oversampler_name]['method'])
+
+        datasets_names = list(cfg['datasets'])
+
+        for idx, dataset_name in enumerate(datasets_names):
+
+            dataset_task_name = dataset_name
+            config_dict = self.config.get_config()
+
+            Task.add_requirements('requirements.txt')
+            self.task = Task.init(
+                project_name=method_project_name,
+                task_name=f"{dataset_task_name}",
+                tags=[f'{dataset_name}', f'{oversampler_name}']
+            )
+            self.logger = self.task.get_logger()
+
+            if self.task:
+                experiment_params = {
+                    'method_name': oversampler_name,
+                    'method_params': oversampler_params,
+                    'config_name': config_name,
+                    'mode': 'method_experiments'
+                }
+                self.task.connect(experiment_params, name='method_experiment_params')
+
+            config = ExperimentConfig()
+            if isinstance(config_dict, dict):
+                config.cv_folds = config_dict.get('Folds number', 5)
+                config.random_runs = config_dict.get('Runs number', 3)
+                config.test_size = config_dict.get('Test size', 0.2)
+                config.random_state = config_dict.get('Random state', 42)
+                config.priority_metrics = config_dict.get('Priority metrics', [
+                    'balanced_accuracy', 'f1_weighted', 'g_mean',
+                    'roc_auc_weighted', 'precision_weighted', 'recall_weighted'
+                ])
+                config.selected_classifiers = config_dict.get('Classifiers', [
+                    'RandomForest', 'LogisticRegression', 'SVM'
+                ])
+
+            current_task = self.task
+
+            runner = ExperimentRunner(
+                config=config,
+                create_clearml_task=False,
+                clearml_task=current_task
+            )
+
+            results = runner.run_single_experiment(
+                dataset_name=dataset_name,
+                smote_algorithm=oversampler,
+            )
+
+            general_results.append(results)
 
     def _create_data_scatter_visualisation(self, X_train: np.ndarray, y_train: np.ndarray,
                                            X_train_smote: np.ndarray, y_train_smote: np.ndarray,
@@ -364,7 +434,7 @@ class ExperimentRunner:
             self.visualiser.plot_roc_curves(
                 y_test=y_test,
                 predictions=predictions_data['roc_predictions'],
-                title=f"ROC Analysis - {smote_algorithm.__class__.__name__} - {dataset_name}",
+                title=f"ROC",
                 clearml_task=self.task,
                 iteration=3
             )
@@ -374,7 +444,7 @@ class ExperimentRunner:
             self.visualiser.plot_precision_recall_curves(
                 y_test=y_test,
                 predictions=predictions_data['roc_predictions'],
-                title=f"PR Analysis - {smote_algorithm.__class__.__name__} - {dataset_name}",
+                title=f"PR",
                 clearml_task=self.task,
                 iteration=3
             )
@@ -686,7 +756,7 @@ class ExperimentRunner:
 
         if csv_data:
             csv_df = pd.DataFrame(csv_data)
-            csv_filename = f"results_summary_{dataset_name}_{smote_algorithm.__class__.__name__}.csv"
+            csv_filename = f"results/results_summary_{dataset_name}_{smote_algorithm.__class__.__name__}.csv"
             csv_df.to_csv(csv_filename, index=False, encoding='utf-8')
 
             self.task.upload_artifact('results_summary_csv', csv_filename)
