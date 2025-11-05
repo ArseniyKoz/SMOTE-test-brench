@@ -6,7 +6,7 @@ breast_cancer:
     data_id: 6611510b8f3d4a7fa25d4d41be6b6b76
     prep_data_id:
 
-Forest_coverage:
+Forest coverage:
     data_id: eae8452f680048eb81e62021ad94a151
     prep_data_id:
 
@@ -28,7 +28,7 @@ Oil:
 
 Phoneme:
     data_id: aef842d63d154b13a02601e543fe8baf
-    prep_data_id:
+    prep_data_id: 6128c53b1b4f400c9abe6ce4469549ff
 
 Pima diabetes:
     data_id: 18a64325a8304b5290c70a06b2c1cb68
