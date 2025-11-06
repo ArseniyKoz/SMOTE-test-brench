@@ -1,6 +1,6 @@
 Adult:
     data_id: 77e07677143e49a39b4e4f4303099dde
-    prep_data_id:
+    prep_data_id: 795fa3fe2d2847d39d8da2fe6ac1d144
 
 breast_cancer:
     data_id: 6611510b8f3d4a7fa25d4d41be6b6b76
@@ -8,23 +8,23 @@ breast_cancer:
 
 Forest coverage:
     data_id: eae8452f680048eb81e62021ad94a151
-    prep_data_id:
+    prep_data_id: 79003f76200443dea7653c4145b3023f
 
 Haberman:
     data_id: b32930d5c70e48e5a38ca75d0e6ed632
-    prep_data_id:
+    prep_data_id: 2645a9ebde5f41f7830d23f3701bb3e9
 
 Ionosphere:
     data_id: f0c4d8df1c5443fcbd54fc7bc5d77ddc
-    prep_data_id:
+    prep_data_id: eda1bf7cdae54bd5963ece530dc4d390
 
 Mammography:
     data_id: 23f0b97e9adc4203829fbf9b9282ebca
-    prep_data_id:
+    prep_data_id: 825f724e30884a588ce3492749e27980
 
 Oil:
     data_id: e528061a1d304e5ab313f9e6ad80e2d1
-    prep_data_id:
+    prep_data_id: 2d39a74804184d1aaa295815d84b0bf3
 
 Phoneme:
     data_id: aef842d63d154b13a02601e543fe8baf
@@ -32,13 +32,28 @@ Phoneme:
 
 Pima diabetes:
     data_id: 18a64325a8304b5290c70a06b2c1cb68
-    prep_data_id:
+    prep_data_id: a19f77ddd13e45a3a0114526e5e11461
 
 Satimage:
     data_id: 60d6c0e2e51b43929257b113e742f96f
-    prep_data_id:
+    prep_data_id: 7c3a657dc79c46a38fb69bf90d7ddc53
 
 Vehicle:
     data_id: a0dc9a57c5cb492f8b4cec206d64365b
     prep_data_id:
 
+Abalone:
+    data_id: 5b7caf44a9a44fbbb26a3035e2b1644c
+    prep_data_id: f10cd7a32ef84cf99d7ff2d4877c084d
+
+Ecoli:
+    data_id: d4ad0d71a8f14702b6e0d29aa2ea518c
+    prep_data_id: 02fb1e8a2b2b492eaa8a40d891b74aa9
+
+us_crime:
+    data_id: 3e622b482d124c2f8eeeab514f1ec376
+    prep_data_id: 3e622b482d124c2f8eeeab514f1ec376
+
+yeast_ml8:
+    data_id: 9f34f42a22fc43029c21908ae262712c
+    prep_data_id: 9f34f42a22fc43029c21908ae262712c
