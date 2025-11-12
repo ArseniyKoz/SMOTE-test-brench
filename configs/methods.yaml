@@ -78,3 +78,6 @@ cluster_SMOTE:
 
 SYMPROD:
     method: sv.SYMPROD()
+
+SMOTE_TomekLinks:
+    method: sv.SMOTE_TomekLinks()

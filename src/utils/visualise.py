@@ -281,9 +281,9 @@ class Visualiser:
         plt.grid(True, alpha=0.3)
 
         if clearml_task:
-            self.clearml_task.get_logger().report_matplotlib_figure(
-                title="ROC Analysis",
-                series=title.replace(" ", "_"),
+            clearml_task.get_logger().report_matplotlib_figure(
+                title=title,
+                series='ROC',
                 figure=plt,
                 iteration=iteration
             )
