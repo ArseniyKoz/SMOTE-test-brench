@@ -15,9 +15,9 @@ def get_dataset_config(dataset_name: str) -> Dict[str, str]:
     return config[dataset_name]
 
 
-def fetch_dataset(dataset_name: str, max_workers: int = 8):
+def fetch_dataset(dataset_name: str, preprocessed: bool, max_workers: int = 8):
     dataset_config = get_dataset_config(dataset_name)
-    dataset_id = dataset_config['data_id']
+    dataset_id = dataset_config['data_id'] if not preprocessed else dataset_config['prep_data_id']
 
     if not dataset_id:
         raise ValueError(

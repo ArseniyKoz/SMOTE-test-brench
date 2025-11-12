@@ -2,10 +2,6 @@ Adult:
     data_id: 77e07677143e49a39b4e4f4303099dde
     prep_data_id: 795fa3fe2d2847d39d8da2fe6ac1d144
 
-breast_cancer:
-    data_id: 6611510b8f3d4a7fa25d4d41be6b6b76
-    prep_data_id:
-
 Forest coverage:
     data_id: eae8452f680048eb81e62021ad94a151
     prep_data_id: 79003f76200443dea7653c4145b3023f
@@ -36,11 +32,7 @@ Pima diabetes:
 
 Satimage:
     data_id: 60d6c0e2e51b43929257b113e742f96f
-    prep_data_id: 7c3a657dc79c46a38fb69bf90d7ddc53
-
-Vehicle:
-    data_id: a0dc9a57c5cb492f8b4cec206d64365b
-    prep_data_id:
+    prep_data_id: cb8872bfefe947399e6b55e1789d01c3
 
 Abalone:
     data_id: 5b7caf44a9a44fbbb26a3035e2b1644c
