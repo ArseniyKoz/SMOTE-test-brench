@@ -250,8 +250,8 @@ class Visualiser:
                         predictions: Dict[str, Dict[str, np.ndarray]],
                         title: str = "ROC кривые",
                         clearml_task: Optional[Task] = None,
-                        iteration: int = 1,
-                        save_path: Optional[str] = None) -> None:
+                        method_name: str = 'SMOTE',
+                        iteration: int = 1) -> None:
 
         plt.figure(figsize=self.figsize, dpi=self.dpi)
 
@@ -266,11 +266,11 @@ class Visualiser:
                     y_pred_proba = predictions[model_name][data_type]
                     fpr, tpr, _ = roc_curve(y_test, y_pred_proba, pos_label=1)
                     roc_auc = roc_auc_score(y_test, y_pred_proba)
-                    label = f'{model_name} ({"исходные" if data_type == "original" else "SMOTE"}) - AUC: {roc_auc:.3f}'
+                    label = f'{model_name} ({"original" if data_type == "original" else "synthetic"})'
                     plt.plot(fpr, tpr, color=colors[i % len(colors)],
                              linestyle=line_styles[j], linewidth=1.5, label=label)
 
-        plt.plot([0, 1], [0, 1], 'k--', alpha=0.5, linewidth=1, label='Случайный классификатор')
+        #plt.plot([0, 1], [0, 1], 'k--', alpha=0.5, linewidth=1, label='Случайный классификатор')
 
         plt.xlim([0.0, 1.0])
         plt.ylim([0.0, 1.05])
@@ -285,7 +285,7 @@ class Visualiser:
                 title=title,
                 series='ROC',
                 figure=plt,
-                iteration=iteration
+                iteration=1
             )
 
         plt.close()
@@ -295,6 +295,7 @@ class Visualiser:
                                      predictions,
                                      title="Precision-Recall Curve",
                                      clearml_task: Optional[Task] = None,
+                                     method_name: str = 'SMOTE',
                                      iteration: int = 1):
         fig = go.Figure()
 
@@ -309,7 +310,7 @@ class Visualiser:
                     precision, recall, _ = precision_recall_curve(y_test, y_pred_proba)
                     pr_auc = auc(recall, precision)
 
-                    label = f'{model_name} ({data_type}) - AUC: {pr_auc:.3f}'
+                    label = f'{model_name} ({"original" if data_type == "original" else "synthetic"})'
 
                     fig.add_trace(go.Scatter(
                         x=recall,
@@ -320,6 +321,7 @@ class Visualiser:
                         hovertemplate='<b>%{fullData.name}</b><br>Recall: %{x:.3f}<br>Precision: %{y:.3f}<br><extra></extra>'
                     ))
 
+        '''
         # Базовая линия
         baseline = np.sum(y_test) / len(y_test)
         fig.add_trace(go.Scatter(
@@ -327,6 +329,7 @@ class Visualiser:
             mode='lines', name=f'Baseline: {baseline:.3f}',
             line=dict(color='black', width=1, dash='dash')
         ))
+        '''
 
         fig.update_layout(
             title=title,
@@ -339,6 +342,6 @@ class Visualiser:
         clearml_task.get_logger().report_plotly(
             title="Precision-Recall Curve",
             series="PR",
-            iteration=iteration,
+            iteration=1,
             figure=fig
         )

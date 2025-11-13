@@ -101,7 +101,7 @@ class ExperimentConfig:
             'log_model_params': self.log_model_params,
 
             'enable_scatter_plots': self.enable_scatter_plots,
-            'nable_roc_curves': self.enable_roc_curves,
+            'enable_roc_curves': self.enable_roc_curves,
             'enable_precision_recall_curves': self.enable_precision_recall_curves
         }
 
@@ -112,14 +112,12 @@ class ExperimentRunner:
     def __init__(self,
                  config: Optional[ExperimentConfig] = None,
                  create_clearml_task: bool = True,
-                 clearml_task: Optional[Task] = None,
-                 mode: str = 'single'  # 'single' или 'dataset'
+                 clearml_task: Optional[Task] = None
                  ):
 
         self.config = config or ExperimentConfig()
         self.create_clearml_task = create_clearml_task
         self.task = None
-        self.mode = mode
 
         if create_clearml_task and clearml_task is None:
             self._initialize_clearml_task()
@@ -211,6 +209,7 @@ class ExperimentRunner:
                 predictions=predictions_data['roc_predictions'],
                 title=f"ROC",
                 clearml_task=self.task,
+                method_name=smote_algorithm.__class__.__name__,
                 iteration=3
             )
 
@@ -221,6 +220,7 @@ class ExperimentRunner:
                 predictions=predictions_data['roc_predictions'],
                 title=f"PR",
                 clearml_task=self.task,
+                method_name=smote_algorithm.__class__.__name__,
                 iteration=3
             )
 
@@ -493,7 +493,7 @@ class ExperimentRunner:
                                    dataset_name,
                                    smote_algorithm
                                    ):
-        results_filename = f"experiment_results_{dataset_name}_{smote_algorithm.__class__.__name__}.json"
+        results_filename = f"results/experiment_results_{dataset_name}_{smote_algorithm.__class__.__name__}.json"
 
         with open(results_filename, 'w', encoding='utf-8') as f:
             json.dump(experiment_results, f, indent=2, ensure_ascii=False, default=str)
