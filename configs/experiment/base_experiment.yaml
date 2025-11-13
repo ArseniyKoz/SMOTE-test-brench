@@ -1,0 +1,20 @@
+methods:
+  - SMOTE
+
+datasets:
+  - Phoneme
+
+datasets_params:
+  preprocessed: True
+
+experiment_config:
+    cv_folds: 5
+    test_size: 0.2
+    random_state: 42
+    priority_metrics: [
+      'balanced_accuracy', 'f1_weighted', 'g_mean',
+      'roc_auc_weighted', 'precision_weighted', 'recall_weighted'
+      ]
+    selected_classifiers: [
+      'RandomForest', 'LogisticRegression', 'kNN'
+      ]

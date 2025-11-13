@@ -4,7 +4,7 @@ from configs.config_loader import ConfigLoader
 from experiments.experiment_runner import ExperimentConfig, ExperimentRunner
 
 
-def main(cfg_name: str):
+def main(cfg_name: str = 'experiments/base_experiment'):
 
     loader = ConfigLoader(cfg_name)
     cfg = loader.load()
