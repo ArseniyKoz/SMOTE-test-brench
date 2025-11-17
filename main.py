@@ -24,4 +24,5 @@ def main(cfg_name: str = 'experiments/base_experiment'):
 
 if __name__ == "__main__":
     config_name = str(sys.argv[1])
+    # config_name = "experiment/base_experiment.yaml"
     main(config_name)

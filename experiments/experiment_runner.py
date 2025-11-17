@@ -273,25 +273,6 @@ class ExperimentRunner:
                     smote_size = len(y_fold_train_smote)
                     logger = self.task.get_logger()
 
-                    logger.report_scalar(
-                        f"SMOTE Effect - {clf_name}",
-                        "Original Size",
-                        original_size,
-                        iteration=current_iteration
-                    )
-                    logger.report_scalar(
-                        f"SMOTE Effect - {clf_name}",
-                        "SMOTE Size",
-                        smote_size,
-                        iteration=current_iteration
-                    )
-                    logger.report_scalar(
-                        f"SMOTE Effect - {clf_name}",
-                        "Size Increase Ratio",
-                        smote_size / original_size,
-                        iteration=current_iteration
-                    )
-
                 classifier.fit(X_fold_train_smote, y_fold_train_smote)
                 y_pred = classifier.predict(X_fold_val)
 
@@ -599,6 +580,10 @@ class ExperimentRunner:
             if name in self.config.selected_classifiers
         }
 
+        cv_imbalanced_results = self._cross_validation_with_smote(
+            X_train, y_train, sv.NoSMOTE(), selected_classifiers
+        )
+
         cv_results = self._cross_validation_with_smote(
             X_train, y_train, smote_algorithm, selected_classifiers
         )
@@ -627,6 +612,7 @@ class ExperimentRunner:
                 'original_class_distribution': np.bincount(y).tolist(),
                 'train_class_distribution': np.bincount(y_train).tolist()
             },
+            'cross_validation_imbalanced_results': cv_imbalanced_results,
             'cross_validation_results': cv_results,
             'final_test_results': final_results,
         }
@@ -637,6 +623,79 @@ class ExperimentRunner:
         self.close_task()
 
         return experiment_results
+
+    def get_row(self, results, cv, classifier, algorithm_name, priority_metrics):
+        clf_rename = {
+            'CatBoost': 'CB',
+            'RandomForest': 'RF',
+            'SVM': 'SVM',
+            'kNN': 'kNN',
+            'LogisticRegression': 'LR',
+            'DecisionTree': 'DT',
+            'NaiveBayes': 'NB'
+        }
+        row = [algorithm_name, clf_rename[classifier]]
+        cv_results = results[cv][classifier]
+        for metric in priority_metrics:
+            str = f'{cv_results[f"{metric}_mean"]:.4f}'
+            row.append(str)
+        return row
+
+    def make_tables(self, datasets, methods, results, experiment_config):
+        logger = self.task.get_logger()
+        priority_metrics = list(experiment_config['priority_metrics'])
+        selected_classifiers = experiment_config['selected_classifiers']
+        columns = ['Method', 'Classificator'] + priority_metrics
+        for dataset in datasets:
+            rows = []
+            dataset_count = 0
+            for result in results:
+                if dataset == result['metadata']['dataset_name']:
+                    dataset_count += 1
+                    if dataset_count == 1:
+                        for classifier in selected_classifiers:
+                            rows.append(self.get_row(result, 'cross_validation_imbalanced_results', classifier, 'Original', priority_metrics))
+                    algorithm_name = result['metadata']['algorithm_name']
+                    for classifier in selected_classifiers:
+                        rows.append(self.get_row(result, 'cross_validation_results', classifier, algorithm_name, priority_metrics))
+            df = pd.DataFrame(rows, columns=columns)
+            logger.report_table(
+                title=f'{dataset} results',
+                series='Table',
+                iteration=0,
+                table_plot=df
+            )
+
+    def aggregate_results(self, results, experiment_config):
+        experiment_name = "results"
+
+        self._initialize_clearml_task()
+        self.visualiser.set_clearml_task(self.task)
+
+        if self.task and not self.config.clearml_task_name:
+            self.task.set_name(f"{experiment_name}")
+
+        datasets = []
+        methods = []
+
+        for result in results:
+            datasets.append(result['metadata']['dataset_name'])
+            methods.append(result['metadata']['algorithm_name'])
+
+        datasets = datasets
+        methods = methods
+
+        if self.task:
+            experiment_params = {
+                'datasets': datasets,
+                'methods': methods
+            }
+            self.task.connect(experiment_params, name='Data')
+            self.task.add_tags(['Results', 'Figures'])
+
+        self.make_tables(datasets, methods, results, experiment_config)
+
+        self.close_task()
 
     def direct_experiments(self, config_name: str):
 
@@ -661,7 +720,8 @@ class ExperimentRunner:
         for oversampler_name in oversamplers_names:
             oversampler = eval(oversamplers_config[oversampler_name]['method'])
             for dataset_name in datasets_name:
-                results = self.run_single_experiment(dataset_name, oversampler, datasets_params, experiment_config=experiment_config)
+                results = self.run_single_experiment(dataset_name, oversampler, datasets_params,
+                                                     experiment_config=experiment_config)
                 general_results.append(results)
 
-
+        self.aggregate_results(general_results, experiment_config)
