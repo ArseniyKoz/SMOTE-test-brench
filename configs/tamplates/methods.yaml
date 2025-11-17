@@ -1,4 +1,6 @@
 methods:
+      Original:
+          params: {}
       SMOTE:
           params: {}
       Borderline_SMOTE1:
