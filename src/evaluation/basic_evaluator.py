@@ -75,10 +75,13 @@ def all_smote_metrics(y_true: np.ndarray, y_pred: np.ndarray,
 
     # Базовые метрики
     metrics['accuracy'] = accuracy_score(y_true, y_pred)
+    metrics['precision'] = precision(y_true, y_pred)
     metrics['precision_macro'] = precision(y_true, y_pred, average='macro')
     metrics['precision_weighted'] = precision(y_true, y_pred, average='weighted')
+    metrics['recall'] = recall(y_true, y_pred)
     metrics['recall_macro'] = recall(y_true, y_pred, average='macro')
     metrics['recall_weighted'] = recall(y_true, y_pred, average='weighted')
+    metrics['f1'] = f1_score(y_true, y_pred)
     metrics['f1_macro'] = f1_score(y_true, y_pred, average='macro')
     metrics['f1_weighted'] = f1_score(y_true, y_pred, average='weighted')
 
@@ -91,6 +94,7 @@ def all_smote_metrics(y_true: np.ndarray, y_pred: np.ndarray,
 
     # ROC AUC
     if y_pred_proba is not None:
+        metrics['roc_auc'] = roc_auc_score(y_true, y_pred_proba)
         metrics['roc_auc_macro'] = roc_auc_score(y_true, y_pred_proba, average='macro')
         metrics['roc_auc_weighted'] = roc_auc_score(y_true, y_pred_proba, average='weighted')
 
