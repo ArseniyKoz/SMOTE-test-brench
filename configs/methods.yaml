@@ -1,3 +1,6 @@
+Original:
+    method: sv.NoSMOTE()
+
 SMOTE:
     method: sv.SMOTE()
 
@@ -78,3 +81,12 @@ cluster_SMOTE:
 
 SYMPROD:
     method: sv.SYMPROD()
+
+SMOTE_TomekLinks:
+    method: sv.SMOTE_TomekLinks()
+
+KMeans_SMOTE:
+    method: sv.kmeans_SMOTE()
+
+AKMeans_SMOTE:
+    method: __import__('src.methods.classic.akmeans_smote', fromlist=['AKMeansSMOTE']).AKMeansSMOTE()

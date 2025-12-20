@@ -159,7 +159,7 @@ class Visualiser:
                 'n_components': 2,
                 'perplexity': 30,
                 'learning_rate': 200,
-                'max_iter': 1000,
+                'n_iter': 1000,
                 'random_state': 42,
                 'verbose': 0
             }
@@ -169,7 +169,23 @@ class Visualiser:
             scaler = StandardScaler()
             X_original_scaled = scaler.fit_transform(X_original)
 
-            tsne_model = TSNE(**tsne_params)
+            # Убираем параметры, которые могут не поддерживаться в разных версиях
+            safe_params = tsne_params.copy()
+            # Удаляем параметры, которые могут вызывать ошибки
+            safe_params.pop('max_iter', None)  # Старые версии используют n_iter
+            if 'n_iter' not in safe_params and 'max_iter' in tsne_params:
+                safe_params['n_iter'] = tsne_params['max_iter']
+            
+            try:
+                tsne_model = TSNE(**safe_params)
+            except TypeError as e:
+                # Если все еще ошибка, используем только базовые параметры
+                basic_params = {
+                    'n_components': safe_params.get('n_components', 2),
+                    'perplexity': safe_params.get('perplexity', 30),
+                    'random_state': safe_params.get('random_state', 42)
+                }
+                tsne_model = TSNE(**basic_params)
 
             if synthetic_samples is not None and len(synthetic_samples) > 0:
 
@@ -186,7 +202,17 @@ class Visualiser:
             if X_smote is not None:
                 X_smote_scaled = scaler.transform(X_smote)
                 combined = np.vstack([X_original_scaled, X_smote_scaled])
-                combined_vis = TSNE(**tsne_params).fit_transform(combined)
+                # Используем те же безопасные параметры
+                try:
+                    combined_tsne = TSNE(**safe_params)
+                except TypeError:
+                    basic_params = {
+                        'n_components': safe_params.get('n_components', 2),
+                        'perplexity': safe_params.get('perplexity', 30),
+                        'random_state': safe_params.get('random_state', 42)
+                    }
+                    combined_tsne = TSNE(**basic_params)
+                combined_vis = combined_tsne.fit_transform(combined)
                 X_smote_vis = combined_vis[len(X_original_scaled):]
             else:
                 X_smote_vis = None
@@ -250,8 +276,8 @@ class Visualiser:
                         predictions: Dict[str, Dict[str, np.ndarray]],
                         title: str = "ROC кривые",
                         clearml_task: Optional[Task] = None,
-                        iteration: int = 1,
-                        save_path: Optional[str] = None) -> None:
+                        method_name: str = 'SMOTE',
+                        iteration: int = 1) -> None:
 
         plt.figure(figsize=self.figsize, dpi=self.dpi)
 
@@ -266,11 +292,11 @@ class Visualiser:
                     y_pred_proba = predictions[model_name][data_type]
                     fpr, tpr, _ = roc_curve(y_test, y_pred_proba, pos_label=1)
                     roc_auc = roc_auc_score(y_test, y_pred_proba)
-                    label = f'{model_name} ({"исходные" if data_type == "original" else "SMOTE"}) - AUC: {roc_auc:.3f}'
+                    label = f'{model_name} ({"original" if data_type == "original" else "synthetic"})'
                     plt.plot(fpr, tpr, color=colors[i % len(colors)],
                              linestyle=line_styles[j], linewidth=1.5, label=label)
 
-        plt.plot([0, 1], [0, 1], 'k--', alpha=0.5, linewidth=1, label='Случайный классификатор')
+        #plt.plot([0, 1], [0, 1], 'k--', alpha=0.5, linewidth=1, label='Случайный классификатор')
 
         plt.xlim([0.0, 1.0])
         plt.ylim([0.0, 1.05])
@@ -281,11 +307,11 @@ class Visualiser:
         plt.grid(True, alpha=0.3)
 
         if clearml_task:
-            self.clearml_task.get_logger().report_matplotlib_figure(
-                title="ROC Analysis",
-                series=title.replace(" ", "_"),
+            clearml_task.get_logger().report_matplotlib_figure(
+                title=title,
+                series='ROC',
                 figure=plt,
-                iteration=iteration
+                iteration=1
             )
 
         plt.close()
@@ -295,6 +321,7 @@ class Visualiser:
                                      predictions,
                                      title="Precision-Recall Curve",
                                      clearml_task: Optional[Task] = None,
+                                     method_name: str = 'SMOTE',
                                      iteration: int = 1):
         fig = go.Figure()
 
@@ -309,7 +336,7 @@ class Visualiser:
                     precision, recall, _ = precision_recall_curve(y_test, y_pred_proba)
                     pr_auc = auc(recall, precision)
 
-                    label = f'{model_name} ({data_type}) - AUC: {pr_auc:.3f}'
+                    label = f'{model_name} ({"original" if data_type == "original" else "synthetic"})'
 
                     fig.add_trace(go.Scatter(
                         x=recall,
@@ -320,6 +347,7 @@ class Visualiser:
                         hovertemplate='<b>%{fullData.name}</b><br>Recall: %{x:.3f}<br>Precision: %{y:.3f}<br><extra></extra>'
                     ))
 
+        '''
         # Базовая линия
         baseline = np.sum(y_test) / len(y_test)
         fig.add_trace(go.Scatter(
@@ -327,6 +355,7 @@ class Visualiser:
             mode='lines', name=f'Baseline: {baseline:.3f}',
             line=dict(color='black', width=1, dash='dash')
         ))
+        '''
 
         fig.update_layout(
             title=title,
@@ -339,6 +368,6 @@ class Visualiser:
         clearml_task.get_logger().report_plotly(
             title="Precision-Recall Curve",
             series="PR",
-            iteration=iteration,
+            iteration=1,
             figure=fig
         )
