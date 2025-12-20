@@ -159,7 +159,7 @@ class Visualiser:
                 'n_components': 2,
                 'perplexity': 30,
                 'learning_rate': 200,
-                'max_iter': 1000,
+                'n_iter': 1000,
                 'random_state': 42,
                 'verbose': 0
             }
@@ -169,7 +169,23 @@ class Visualiser:
             scaler = StandardScaler()
             X_original_scaled = scaler.fit_transform(X_original)
 
-            tsne_model = TSNE(**tsne_params)
+            # Убираем параметры, которые могут не поддерживаться в разных версиях
+            safe_params = tsne_params.copy()
+            # Удаляем параметры, которые могут вызывать ошибки
+            safe_params.pop('max_iter', None)  # Старые версии используют n_iter
+            if 'n_iter' not in safe_params and 'max_iter' in tsne_params:
+                safe_params['n_iter'] = tsne_params['max_iter']
+            
+            try:
+                tsne_model = TSNE(**safe_params)
+            except TypeError as e:
+                # Если все еще ошибка, используем только базовые параметры
+                basic_params = {
+                    'n_components': safe_params.get('n_components', 2),
+                    'perplexity': safe_params.get('perplexity', 30),
+                    'random_state': safe_params.get('random_state', 42)
+                }
+                tsne_model = TSNE(**basic_params)
 
             if synthetic_samples is not None and len(synthetic_samples) > 0:
 
@@ -186,7 +202,17 @@ class Visualiser:
             if X_smote is not None:
                 X_smote_scaled = scaler.transform(X_smote)
                 combined = np.vstack([X_original_scaled, X_smote_scaled])
-                combined_vis = TSNE(**tsne_params).fit_transform(combined)
+                # Используем те же безопасные параметры
+                try:
+                    combined_tsne = TSNE(**safe_params)
+                except TypeError:
+                    basic_params = {
+                        'n_components': safe_params.get('n_components', 2),
+                        'perplexity': safe_params.get('perplexity', 30),
+                        'random_state': safe_params.get('random_state', 42)
+                    }
+                    combined_tsne = TSNE(**basic_params)
+                combined_vis = combined_tsne.fit_transform(combined)
                 X_smote_vis = combined_vis[len(X_original_scaled):]
             else:
                 X_smote_vis = None

@@ -31,7 +31,8 @@ class ClassifierPool:
         from catboost import CatBoostClassifier
         return {
             'CatBoost': CatBoostClassifier(
-                random_state=self.random_state
+                random_state=self.random_state,
+                verbose=False,
             ),
             'RandomForest': RandomForestClassifier(
                 n_estimators=100,
@@ -171,6 +172,7 @@ class ExperimentRunner:
                 iteration=2
             )
 
+            
             self.visualiser.plot_data_scatter_tsne(
                 X_original=X_train_np,
                 y_original=y_train_np,
@@ -181,7 +183,6 @@ class ExperimentRunner:
                 log_to_clearml=True,
                 iteration=2
             )
-
     def _prepare_predictions_data(self, final_results: Dict) -> Dict:
         roc_predictions = {}
 
@@ -202,7 +203,7 @@ class ExperimentRunner:
                                        ):
         predictions_data = self._prepare_predictions_data(final_results)
 
-        # ROC кривые
+        # ROC пїЅпїЅпїЅпїЅпїЅпїЅ
         if predictions_data['roc_predictions'] and self.config.enable_roc_curves:
             self.visualiser.plot_roc_curves(
                 y_test=y_test,
@@ -213,7 +214,7 @@ class ExperimentRunner:
                 iteration=3
             )
 
-        # Precision-Recall кривые
+        # Precision-Recall пїЅпїЅпїЅпїЅпїЅпїЅ
         if predictions_data['roc_predictions'] and self.config.enable_precision_recall_curves:
             self.visualiser.plot_precision_recall_curves(
                 y_test=y_test,
