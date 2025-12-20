@@ -84,3 +84,9 @@ SYMPROD:
 
 SMOTE_TomekLinks:
     method: sv.SMOTE_TomekLinks()
+
+KMeans_SMOTE:
+    method: sv.kmeans_SMOTE()
+
+AKMeans_SMOTE:
+    method: __import__('src.methods.classic.akmeans_smote', fromlist=['AKMeansSMOTE']).AKMeansSMOTE()
