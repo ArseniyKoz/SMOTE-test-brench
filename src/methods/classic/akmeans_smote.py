@@ -14,15 +14,6 @@ from src.methods.base import BaseSMOTE
 
 
 class AKMeansSMOTE(BaseSMOTE):
-    """
-    K-Means SMOTE с адаптивным подбором кластеров и мягкой фильтрацией.
-    
-    Основные улучшения:
-    1. Генерация только в устойчивых кластерах (минимальный размер + разреженность в допустимых диапазонах)
-    2. X-Means для автоматического определения числа кластеров
-    3. Мягкая фильтрация: чем выше уверенность классификатора, тем выше шанс остаться
-    """
-    
     def __init__(self,
                  k_neighbors: int = 5,
                  min_cluster_size: int = 3,
@@ -36,7 +27,7 @@ class AKMeansSMOTE(BaseSMOTE):
         k_neighbors : int
             Число соседей для генерации синтетических точек
         min_cluster_size : int
-            Минимальный размер кластера для генерации (исключает шум)
+            Минимальный размер кластера для генерации
         max_sparsity_ratio : float
             Максимальное отношение разреженности кластера к среднему
         k_max : int
@@ -67,7 +58,7 @@ class AKMeansSMOTE(BaseSMOTE):
             k = len(xmeans_instance.get_centers())
             return max(2, min(k, len(X)))
         except Exception as e:
-            warnings.warn(f"X-Means ошибка: {e}. Используем k=3.")
+            warnings.warn(f"X-Means ошибка: {e}. Используем k={min(3, len(X))}.")
             return min(3, len(X))
     
     def _find_optimal_k_with_cv(self, X_class: np.ndarray, X_full: np.ndarray, 
@@ -78,7 +69,7 @@ class AKMeansSMOTE(BaseSMOTE):
         # Базовый скор без сэмплов
         clf = RandomForestClassifier(n_estimators=50, max_depth=5, random_state=self.random_state)
         try:
-            base_score = np.mean(cross_val_score(clf, X_full, y_full, cv=self.cv_folds, scoring='f1_macro'))
+            base_score = np.mean(cross_val_score(clf, X_full, y_full, cv=self.cv_folds, scoring='balanced_accuracy'))
         except Exception:
             base_score = 0.5
         
@@ -124,7 +115,7 @@ class AKMeansSMOTE(BaseSMOTE):
                 y_test = np.hstack([y_full, np.full(len(synthetic), minority_label)])
                 
                 clf = RandomForestClassifier(n_estimators=50, max_depth=5, random_state=self.random_state)
-                score = np.mean(cross_val_score(clf, X_test, y_test, cv=self.cv_folds, scoring='f1_macro'))
+                score = np.mean(cross_val_score(clf, X_test, y_test, cv=self.cv_folds, scoring='balanced_accuracy'))
                 
                 if score > best_score:
                     best_score = score
@@ -187,8 +178,6 @@ class AKMeansSMOTE(BaseSMOTE):
 
         if not stable_clusters:
             return {}
-        
-        n_clusters = len(stable_clusters)
         
         # Вычисляем веса: меньше разреженность = больше вес
         weights = np.array([1.0 / (sparsities[label] + 1e-10) for label in stable_clusters])
@@ -263,7 +252,6 @@ class AKMeansSMOTE(BaseSMOTE):
             return X_synthetic, y_synthetic
 
     def fit_resample(self, X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        # X, y = self._validate_input(X, y)
         
         class_counts = Counter(y)
         target_counts = self._calculate_target_counts(class_counts)

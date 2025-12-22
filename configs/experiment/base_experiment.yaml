@@ -1,8 +1,19 @@
 methods:
-  - SMOTE
+   - AKMeans_SMOTE
+   - KMeans_SMOTE
 
 datasets:
+  - Adult
+  - Haberman
+  - Ionosphere
+  - Mammography
+  - Oil
   - Phoneme
+  - Pima diabetes
+  - Abalone
+  - Ecoli
+  - us_crime
+  - yeast_ml8
 
 datasets_params:
   preprocessed: True
