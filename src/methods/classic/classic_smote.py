@@ -88,8 +88,8 @@ class SMOTE(BaseSMOTE):
 
         self.n_neighbors_estimator_.fit(X_class)
 
-        X_synthetic = []
-        y_synthetic = []
+        X_synthetic = np.empty((n_samples, X_class.shape[1]), dtype=X_class.dtype)
+        y_synthetic = np.full(n_samples, class_label, dtype=np.asarray([class_label]).dtype)
 
         for i in range(n_samples):
 
@@ -110,7 +110,6 @@ class SMOTE(BaseSMOTE):
             lambda_value = self.random_generator.random()
             synthetic_sample = sample[0] + lambda_value * (neighbor - sample[0])
 
-            X_synthetic.append(synthetic_sample)
-            y_synthetic.append(class_label)
+            X_synthetic[i] = synthetic_sample
 
-        return np.array(X_synthetic), np.array(y_synthetic)
+        return X_synthetic, y_synthetic

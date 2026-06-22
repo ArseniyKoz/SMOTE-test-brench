@@ -71,8 +71,13 @@ class ADASYN(BaseSMOTE):
         nn_min = NearestNeighbors(n_neighbors=actual_k_min + 1, metric='euclidean')
         nn_min.fit(X_minority_only)
 
-        X_synthetic_list = []
-        y_synthetic_list = []
+        total_samples = int(np.sum(g_values))
+        if total_samples <= 0:
+            return np.empty((0, X.shape[1]), dtype=X.dtype), np.array([], dtype=y.dtype)
+
+        X_synthetic = np.empty((total_samples, X.shape[1]), dtype=X.dtype)
+        y_synthetic = np.full(total_samples, minority_class, dtype=y.dtype)
+        out_idx = 0
 
         for i, (x_i, g_i) in enumerate(zip(X_minority, g_values)):
             if g_i <= 0:
@@ -91,19 +96,22 @@ class ADASYN(BaseSMOTE):
                 lambda_value = self.random_generator.uniform(0, 1)
                 synthetic_sample = x_i + lambda_value * (x_neighbor - x_i)
 
-                X_synthetic_list.append(synthetic_sample)
-                y_synthetic_list.append(minority_class)
+                X_synthetic[out_idx] = synthetic_sample
+                out_idx += 1
 
-        return np.array(X_synthetic_list), np.array(y_synthetic_list)
+        return X_synthetic[:out_idx], y_synthetic[:out_idx]
 
     def fit_resample(self, X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        X, y = self._validate_input(X, y)
 
         class_counts = Counter(y)
+        if len(class_counts) != 2:
+            raise ValueError("ADASYN supports exactly 2 classes")
 
         classes = list(class_counts.keys())
         counts = list(class_counts.values())
 
-        # определяем миноритарный и мажиротарный класс
+        # Determine majority and minority classes.
         if counts[0] >= counts[1]:
             majority_class, minority_class = classes[0], classes[1]
             ml, ms = counts[0], counts[1]
@@ -111,34 +119,36 @@ class ADASYN(BaseSMOTE):
             majority_class, minority_class = classes[1], classes[0]
             ml, ms = counts[1], counts[0]
 
-        # вычисляем долю дисбаланса, нужно, чтобы она была меньше порога
+        # Skip generation when the class imbalance is already below the threshold.
         d = ms / ml
         if d >= self.d_threshold:
             return X, y
 
-        # определяем сколько семплов нужно сгенерировать
+        # Compute the total number of synthetic samples to generate.
         G = int((ml - ms) * self.beta)
         if G <= 0:
             return X, y
 
-        # выбираем только экземпляры миноритарного класса
+        # Use only minority-class samples as synthetic-sample anchors.
         minority_mask = (y == minority_class)
         X_minority = X[minority_mask]
 
         if len(X_minority) < 2:
             return X, y
 
-        # высчитываем весовые коэффициенты
+        # Estimate per-sample difficulty weights.
         r_values = self._calculate_difficulty_weights(X, y, X_minority, majority_class)
 
-        # нормируем
+        # Normalize difficulty weights.
         r_sum = np.sum(r_values)
+        if r_sum <= 0:
+            return X, y
         r_hat = r_values / r_sum
 
-        # Расчет необходимого количество семплов для генерации для каждого семпла миноритарного класса
+        # Allocate synthetic samples across minority anchors.
         g_values = self._calculate_generation_counts(r_hat, G)
 
-        # Генерируем семплы
+        # Generate synthetic samples.
         X_synthetic, y_synthetic = self._generate_synthetic_samples(
             X, y, X_minority, minority_class, g_values
         )

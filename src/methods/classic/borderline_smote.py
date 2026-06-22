@@ -1,6 +1,5 @@
 from typing import Optional
 import numpy as np
-from numpy.random._examples.cffi.extending import rng
 from sklearn.neighbors import NearestNeighbors
 
 from src.methods.base import BaseSMOTE
@@ -43,8 +42,8 @@ class BorderlineSMOTE(BaseSMOTE):
             labels = y_all[neigh_idx]
             H = np.sum(labels != minority_label)
             # noise: H == m
-            # danger: H в [m/2, m)
-            # safe: иначе
+            # danger: H in [m/2, m)
+            # safe: otherwise
             m_eff = len(neigh_idx)
             if m_eff == 0:
                 continue
@@ -86,18 +85,18 @@ class BorderlineSMOTE(BaseSMOTE):
         y_syn = np.full(n_samples, minority_label, dtype=y.dtype)
 
         for i in range(n_samples):
-            idx_local = rng.randint(0, len(X_danger))
+            idx_local = self.random_generator.randint(0, len(X_danger))
             x = X_danger[idx_local]
 
-            lambda_value = rng.uniform(self.lambda_range[0], self.lambda_range[1])
+            lambda_value = self.random_generator.uniform(self.lambda_range[0], self.lambda_range[1])
 
-            if use_b2 and rng.rand() < 0.5:
+            if use_b2 and self.random_generator.rand() < 0.5:
                 maj_neighbors = ind_maj[idx_local]
-                x_maj = X_maj[rng.choice(maj_neighbors)]
+                x_maj = X_maj[self.random_generator.choice(maj_neighbors)]
                 x_new = x + lambda_value * (x - x_maj)
             else:
                 min_neighbors = ind_min[idx_local]
-                x_nn = X_min[rng.choice(min_neighbors)]
+                x_nn = X_min[self.random_generator.choice(min_neighbors)]
                 x_new = x + lambda_value * (x_nn - x)
 
             X_syn[i] = x_new
@@ -105,10 +104,11 @@ class BorderlineSMOTE(BaseSMOTE):
         return X_syn, y_syn
 
     def fit_resample(self, X, y):
-        X = np.asarray(X, dtype=float)
-        y = np.asarray(y)
+        X, y = self._validate_input(X, y)
 
         classes, counts = np.unique(y, return_counts=True)
+        if len(classes) != 2:
+            raise ValueError("BorderlineSMOTE supports exactly 2 classes")
         minority_label = classes[np.argmin(counts)]
 
         n_min = counts.min()

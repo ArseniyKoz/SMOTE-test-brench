@@ -20,7 +20,8 @@ class AKMeansSMOTE(BaseSMOTE):
                  max_sparsity_ratio: float = 2.0,
                  k_max: int = 20,
                  cv_folds: int = 3,
-                 random_state: Optional[int] = None):
+                 random_state: Optional[int] = None,
+                 xmeans_max_samples: int = 5000):
         """
         Параметры:
         ----------
@@ -44,11 +45,15 @@ class AKMeansSMOTE(BaseSMOTE):
         self.k_max = k_max
         self.cv_folds = cv_folds
         self.random_state = random_state
+        self.xmeans_max_samples = xmeans_max_samples
         self.rng = np.random.RandomState(random_state)
     
     def _estimate_k_with_xmeans(self, X: np.ndarray) -> int:
         if len(X) < 2:
             return 1
+
+        if len(X) > self.xmeans_max_samples:
+            return self._estimate_k_bounded_kmeans(X)
         
         try:
             data = X.tolist()
@@ -59,6 +64,23 @@ class AKMeansSMOTE(BaseSMOTE):
             return max(2, min(k, len(X)))
         except Exception as e:
             warnings.warn(f"X-Means ошибка: {e}. Используем k={min(3, len(X))}.")
+            return min(3, len(X))
+
+    def _estimate_k_bounded_kmeans(self, X: np.ndarray) -> int:
+        max_k = max(2, min(self.k_max, len(X)))
+        heuristic_k = max(2, min(max_k, int(np.sqrt(len(X)))))
+        sample_size = min(len(X), self.xmeans_max_samples)
+        if sample_size < len(X):
+            indices = self.rng.choice(len(X), size=sample_size, replace=False)
+            X_fit = X[indices]
+        else:
+            X_fit = X
+
+        try:
+            KMeans(n_clusters=heuristic_k, random_state=self.random_state, n_init=10).fit(X_fit)
+            return heuristic_k
+        except Exception as e:
+            warnings.warn(f"Bounded KMeans ошибка: {e}. Используем k={min(3, len(X))}.")
             return min(3, len(X))
     
     def _find_optimal_k_with_cv(self, X_class: np.ndarray, X_full: np.ndarray, 
@@ -212,8 +234,8 @@ class AKMeansSMOTE(BaseSMOTE):
         nn = NearestNeighbors(n_neighbors=k + 1)
         nn.fit(points)
         
-        synthetic = []
-        for _ in range(n_samples):
+        synthetic = np.empty((n_samples, points.shape[1]), dtype=points.dtype)
+        for sample_idx in range(n_samples):
             idx = self.rng.randint(len(points))
             point = points[idx]
             
@@ -222,9 +244,9 @@ class AKMeansSMOTE(BaseSMOTE):
             neighbor = points[neighbor_idx]
             
             lam = self.rng.random()
-            synthetic.append(point + lam * (neighbor - point))
+            synthetic[sample_idx] = point + lam * (neighbor - point)
         
-        return np.array(synthetic)
+        return synthetic
 
     def _quality_filter(self, X_synthetic: np.ndarray, y_synthetic: np.ndarray,
                              X_train: np.ndarray, y_train: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -252,6 +274,7 @@ class AKMeansSMOTE(BaseSMOTE):
             return X_synthetic, y_synthetic
 
     def fit_resample(self, X: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        X, y = self._validate_input(X, y)
         
         class_counts = Counter(y)
         target_counts = self._calculate_target_counts(class_counts)

@@ -16,9 +16,7 @@ class BaseSMOTE(BaseEstimator, ABC):
 
         self.sampling_strategy = sampling_strategy
         self.random_state = random_state
-
-        if random_state is not None:
-            np.random.seed(random_state)
+        self.random_generator = np.random.RandomState(random_state)
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
