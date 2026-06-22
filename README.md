@@ -17,7 +17,7 @@
 - кастомные реализации из `src/methods/classic/*` считаются неактуальными и не входят в текущий benchmark-пайплайн.
 
 ## Requirements
-- Python 3.10+;
+- Python 3.10, 3.11, or 3.12;
 - доступ к ClearML Server;
 - настроенные credentials ClearML для текущего окружения.
 
@@ -58,7 +58,10 @@ clearml-init
 
 Для каждого датасета задается:
 - `data_id`: ID набора данных в ClearML;
-- `prep_data_id`: резервное поле (если используется отдельно подготовленная версия).
+- `prep_data_id`: отдельно подготовленная версия, которая по умолчанию считается небезопасной для benchmark-оценки без явного provenance;
+- ethics metadata для чувствительных датасетов: source/license, sensitive attributes, intended use, limitations.
+
+По умолчанию benchmark использует raw `data_id`. Если включить `datasets_params.preprocessed: true`, конфигурация пройдет проверку только когда у датасета указано `preprocessing_provenance.train_only: true` или явно выставлено `datasets_params.allow_unsafe_preprocessed: true`. Текущая защита не переносит preprocessing внутрь train/CV fold автоматически; она блокирует или явно маркирует заранее подготовленные ClearML datasets, если их provenance не доказывает train-only preprocessing. Для новых preprocessing steps fit/transform нужно реализовывать внутри train/fold boundaries.
 
 Ожидается, что CSV-файл внутри ClearML Dataset:
 - имеет имя `<dataset_name>.csv`;
@@ -100,10 +103,13 @@ python main.py
 В проекте используются метрики качества для имбалансных задач, в том числе:
 - `balanced_accuracy`;
 - `f1_macro`;
+- `f1_class_0` / `f1_class_1`;
 - `g_mean`;
 - `roc_auc_macro`;
 - `precision_macro`;
 - `recall_macro`.
+
+Macro и per-class метрики являются основными для сравнения imbalanced classification. Weighted metrics остаются доступными, но не входят в default priority list, потому что могут маскировать качество на minority class.
 
 Сравнение проводится в формате:
 - `Original`: обучение на исходной train-выборке;

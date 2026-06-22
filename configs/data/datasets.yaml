@@ -1,6 +1,15 @@
 Adult:
     data_id: 77e07677143e49a39b4e4f4303099dde
     prep_data_id: 795fa3fe2d2847d39d8da2fe6ac1d144
+    source: UCI Adult / Census Income dataset
+    license: UCI Machine Learning Repository terms; verify original source terms before redistribution
+    sensitive_attributes:
+      - age
+      - sex
+      - race
+      - native-country
+    intended_use: Research benchmark for imbalanced binary classification methods.
+    limitations: Contains demographic attributes and income labels; benchmark scores are not deployment evidence for hiring, credit, policing, or other high-impact decisions.
 
 Forest coverage:
     data_id: eae8452f680048eb81e62021ad94a151
@@ -17,6 +26,13 @@ Ionosphere:
 Mammography:
     data_id: 23f0b97e9adc4203829fbf9b9282ebca
     prep_data_id: 825f724e30884a588ce3492749e27980
+    source: Mammography imbalanced classification benchmark dataset
+    license: Verify source-specific research-use terms before redistribution.
+    sensitive_attributes:
+      - medical imaging features
+      - health status label
+    intended_use: Research benchmark for binary imbalanced classification and oversampling.
+    limitations: Medical benchmark data is not clinical validation and must not be used as deployment evidence.
 
 Oil:
     data_id: e528061a1d304e5ab313f9e6ad80e2d1
@@ -29,6 +45,15 @@ Phoneme:
 Pima diabetes:
     data_id: 18a64325a8304b5290c70a06b2c1cb68
     prep_data_id: a19f77ddd13e45a3a0114526e5e11461
+    source: UCI / NIDDK Pima Indians Diabetes dataset
+    license: Verify UCI and original data-owner terms before redistribution.
+    sensitive_attributes:
+      - age
+      - pregnancy count
+      - health measurements
+      - heritage-specific cohort membership
+    intended_use: Research benchmark for binary imbalanced classification and oversampling.
+    limitations: Cohort-specific medical data is not clinical validation and must not be used as deployment evidence.
 
 Satimage:
     data_id: 60d6c0e2e51b43929257b113e742f96f
@@ -45,6 +70,14 @@ Ecoli:
 us_crime:
     data_id: 3e622b482d124c2f8eeeab514f1ec376
     prep_data_id: 184a44898be64c9d8a6343b4662e6c67
+    source: Communities and Crime / US crime benchmark dataset
+    license: Verify UCI and original source terms before redistribution.
+    sensitive_attributes:
+      - race-related community aggregates
+      - socioeconomic indicators
+      - policing and crime statistics
+    intended_use: Research benchmark only for imbalanced classification methodology.
+    limitations: Contains sensitive community-level proxies; benchmark results are not evidence for policing, risk scoring, or resource-allocation deployment.
 
 yeast_ml8:
     data_id: 9f34f42a22fc43029c21908ae262712c

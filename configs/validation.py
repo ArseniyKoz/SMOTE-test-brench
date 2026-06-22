@@ -79,6 +79,20 @@ def _validate_cross_references(
             'Unknown datasets in experiment config: ' + ', '.join(missing_datasets)
         )
 
+    dataset_params = experiment.datasets_params
+    if dataset_params.preprocessed and not dataset_params.allow_unsafe_preprocessed:
+        unsafe = []
+        for dataset_name in experiment.datasets:
+            dataset = datasets_registry[dataset_name]
+            provenance = dataset.preprocessing_provenance or {}
+            if dataset.prep_data_id and provenance.get('train_only') is not True:
+                unsafe.append(dataset_name)
+        if unsafe:
+            raise ConfigValidationError(
+                'Preprocessed datasets require preprocessing_provenance.train_only=true '
+                'or datasets_params.allow_unsafe_preprocessed=true: ' + ', '.join(sorted(unsafe))
+            )
+
 
 def load_validated_benchmark_bundle(config_name: str) -> ValidatedBenchmarkBundle:
     experiment = _load_experiment_config(config_name)

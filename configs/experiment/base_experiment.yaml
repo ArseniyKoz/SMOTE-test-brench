@@ -16,16 +16,19 @@ datasets:
   - yeast_ml8
 
 datasets_params:
-  preprocessed: True
+  preprocessed: False
 
 experiment_config:
     cv_folds: 5
     test_size: 0.2
     random_state: 42
     priority_metrics: [
-      'balanced_accuracy', 'f1_weighted', 'g_mean',
-      'roc_auc_weighted', 'precision_weighted', 'recall_weighted'
+      'balanced_accuracy', 'f1_macro', 'f1_class_0', 'f1_class_1',
+      'g_mean', 'roc_auc_macro', 'precision_macro', 'recall_macro'
       ]
     selected_classifiers: [
       'RandomForest', 'LogisticRegression', 'kNN'
       ]
+    max_resampled_multiplier: 5.0
+    max_plot_samples: 5000
+    enable_tsne_plots: False

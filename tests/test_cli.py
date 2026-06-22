@@ -1,4 +1,5 @@
 import argparse
+import sys
 
 import pytest
 
@@ -48,8 +49,10 @@ def test_apply_cli_overrides_updates_config_lists():
 
 
 def test_run_cli_dry_validate_success():
+    sys.modules.pop("experiments.experiment_runner", None)
     exit_code = run_cli(["--config", "experiment/base_experiment.yaml", "--dry-validate"])
     assert exit_code == 0
+    assert "experiments.experiment_runner" not in sys.modules
 
 
 def test_run_cli_dry_validate_invalid_config(tmp_path):
@@ -63,6 +66,24 @@ def test_run_cli_dry_validate_invalid_config(tmp_path):
         "  random_state: 42\n"
         "  priority_metrics: []\n"
         "  selected_classifiers: []\n",
+        encoding="utf-8",
+    )
+
+    exit_code = run_cli(["--config", str(invalid_cfg), "--dry-validate"])
+    assert exit_code == 1
+
+
+def test_run_cli_dry_validate_unknown_classifier(tmp_path):
+    invalid_cfg = tmp_path / "invalid_classifier.yaml"
+    invalid_cfg.write_text(
+        "methods: [SMOTE]\n"
+        "datasets: [Adult]\n"
+        "experiment_config:\n"
+        "  cv_folds: 2\n"
+        "  test_size: 0.2\n"
+        "  random_state: 42\n"
+        "  priority_metrics: [balanced_accuracy]\n"
+        "  selected_classifiers: [NotAClassifier]\n",
         encoding="utf-8",
     )
 

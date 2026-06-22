@@ -17,7 +17,10 @@ def roc_auc_score(y_true: np.ndarray, y_pred_proba: np.ndarray,
 
 
 def confusion_matrix_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
-    cm = confusion_matrix(y_true, y_pred)
+    labels = np.unique(np.concatenate([np.asarray(y_true), np.asarray(y_pred)]))
+    if len(labels) != 2:
+        raise ValueError(f'binary metrics require exactly 2 classes, got {len(labels)}')
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
     tn, fp, fn, tp = cm.ravel()
 
     tpr = tp / (tp + fn) if (tp + fn) > 0 else 0.0  # Recall/Sensitivity
@@ -78,12 +81,21 @@ def all_smote_metrics(y_true: np.ndarray, y_pred: np.ndarray,
     metrics['precision'] = precision(y_true, y_pred)
     metrics['precision_macro'] = precision(y_true, y_pred, average='macro')
     metrics['precision_weighted'] = precision(y_true, y_pred, average='weighted')
+    precision_per_class = precision_score(y_true, y_pred, average=None, zero_division=0)
+    metrics['precision_class_0'] = precision_per_class[0]
+    metrics['precision_class_1'] = precision_per_class[1]
     metrics['recall'] = recall(y_true, y_pred)
     metrics['recall_macro'] = recall(y_true, y_pred, average='macro')
     metrics['recall_weighted'] = recall(y_true, y_pred, average='weighted')
+    recall_per_class = recall_score(y_true, y_pred, average=None, zero_division=0)
+    metrics['recall_class_0'] = recall_per_class[0]
+    metrics['recall_class_1'] = recall_per_class[1]
     metrics['f1'] = f1_score(y_true, y_pred)
     metrics['f1_macro'] = f1_score(y_true, y_pred, average='macro')
     metrics['f1_weighted'] = f1_score(y_true, y_pred, average='weighted')
+    f1_per_class = sklearn.metrics.f1_score(y_true, y_pred, average=None, zero_division=0)
+    metrics['f1_class_0'] = f1_per_class[0]
+    metrics['f1_class_1'] = f1_per_class[1]
 
     metrics['balanced_accuracy'] = balanced_accuracy(y_true, y_pred)
     metrics['g_mean'] = g_mean(y_true, y_pred)
@@ -94,9 +106,12 @@ def all_smote_metrics(y_true: np.ndarray, y_pred: np.ndarray,
 
     # ROC AUC
     if y_pred_proba is not None:
-        metrics['roc_auc'] = roc_auc_score(y_true, y_pred_proba)
-        metrics['roc_auc_macro'] = roc_auc_score(y_true, y_pred_proba, average='macro')
-        metrics['roc_auc_weighted'] = roc_auc_score(y_true, y_pred_proba, average='weighted')
+        try:
+            metrics['roc_auc'] = roc_auc_score(y_true, y_pred_proba)
+            metrics['roc_auc_macro'] = roc_auc_score(y_true, y_pred_proba, average='macro')
+            metrics['roc_auc_weighted'] = roc_auc_score(y_true, y_pred_proba, average='weighted')
+        except ValueError:
+            logger.warning('ROC AUC skipped because the fold/test split has one class')
 
     metrics['specificity'] = specificity(y_true, y_pred)
 

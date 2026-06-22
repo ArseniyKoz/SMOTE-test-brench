@@ -11,7 +11,6 @@ from configs.validation import (
     load_validated_benchmark_bundle,
     validate_cross_references,
 )
-from experiments.experiment_runner import ExperimentConfig, ExperimentRunner
 
 
 def _csv_list(value: Optional[str]) -> Optional[List[str]]:
@@ -60,7 +59,9 @@ def apply_cli_overrides(config_data: dict, args: argparse.Namespace) -> dict:
     return updated
 
 
-def _build_runner_config(experiment: BenchmarkExperimentModel, no_plots: bool) -> ExperimentConfig:
+def _build_runner_config(experiment: BenchmarkExperimentModel, no_plots: bool):
+    from experiments.experiment_runner import ExperimentConfig
+
     cfg = ExperimentConfig(experiment.experiment_config.model_dump())
     if no_plots:
         cfg.enable_scatter_plots = False
@@ -87,6 +88,8 @@ def run_cli(argv: Optional[Iterable[str]] = None) -> int:
     if args.dry_validate:
         print('Configuration is valid.')
         return 0
+
+    from experiments.experiment_runner import ExperimentRunner
 
     runner_config = _build_runner_config(experiment, args.no_plots)
     runner = ExperimentRunner(config=runner_config, create_clearml_task=True)

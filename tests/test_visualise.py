@@ -1,4 +1,6 @@
-import matplotlib
+import pytest
+
+matplotlib = pytest.importorskip("matplotlib")
 
 from src.utils.visualise import Visualiser
 
