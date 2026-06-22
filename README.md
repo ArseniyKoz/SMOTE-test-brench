@@ -1,10 +1,26 @@
 # SMOTE Test Bench
 
-Benchmark стенд для сравнения oversampling-методов семейства SMOTE на бинарных imbalanced classification задачах.
+Бенчмарк-стенд для сравнения oversampling-методов семейства SMOTE на бинарных imbalanced classification задачах. Цель проекта - не просто запустить несколько методов, а сделать воспроизводимый контур эксперимента: единые конфиги, одинаковые classifier runs, safety checks против data leakage, сохранение артефактов и тесты для контрактов на уровне runner.
 
-Проект запускает один и тот же набор классификаторов на исходной train-выборке и на train-выборке после oversampling, считает метрики, сохраняет артефакты эксперимента и при необходимости логирует результаты в ClearML.
+## English Summary
 
-## Что Делает Pipeline
+This repository is a research benchmark for SMOTE-family oversampling methods on imbalanced binary classification tasks. It focuses on reproducibility and experiment safety: config-driven runs, ClearML dataset metadata, local and third-party methods, pytest coverage, data-leakage checks, and persisted JSON/CSV/NPZ artifacts.
+
+## Что внутри
+
+- Config-driven pipeline для запуска методов и классификаторов на одинаковых train/test splits.
+- Local SMOTE implementations в [src/methods/classic](src/methods/classic) рядом с поддержкой `smote_variants`.
+- Dataset registry и metadata в [configs/data/datasets.yaml](configs/data/datasets.yaml).
+- Safety checks для preprocessed datasets, `fit_resample` outputs, plot size limits и artifact contracts.
+- Pytest suite в [tests](tests) для CLI, config loader, registry, experiment runner, local methods и visualization helpers.
+
+## Evidence
+
+- **What this proves:** ML benchmark можно сделать проверяемым: конфиги описывают эксперимент, runner валидирует опасные места, а результаты сохраняются как артефакты вместо ручного копирования из notebook.
+- **Where to verify:** [configs/experiment/base_experiment.yaml](configs/experiment/base_experiment.yaml), [configs/methods.yaml](configs/methods.yaml), [configs/validation.py](configs/validation.py), [experiments/experiment_runner.py](experiments/experiment_runner.py), [tests](tests), [pyproject.toml](pyproject.toml).
+- **Limits:** реальные benchmark runs требуют ClearML Server и зарегистрированные datasets; проект не утверждает универсального победителя среди SMOTE-методов без конкретного набора данных и конфигурации.
+
+## Что делает pipeline
 
 1. Загружает датасет из ClearML Dataset Registry.
 2. Проверяет, что задача бинарная и подходит для stratified holdout/CV.
