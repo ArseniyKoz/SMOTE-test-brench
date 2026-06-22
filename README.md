@@ -1,132 +1,271 @@
-# SMOTE-test-bench
-Тестовый стенд для сравнения oversampling-алгоритмов семейства SMOTE на задачах бинарной классификации с логированием экспериментов в ClearML.
+# SMOTE Test Bench
 
-## Overview
-Проект автоматизирует benchmark oversampling-методов на фиксированном пуле классификаторов и метрик. Основная цель: сравнить качество модели на исходных данных и после балансировки train-части.
+Benchmark стенд для сравнения oversampling-методов семейства SMOTE на бинарных imbalanced classification задачах.
 
-Ключевые возможности:
-- загрузка датасетов из ClearML Dataset Registry;
-- запуск серий экспериментов по набору методов;
-- единый расчет метрик качества для baseline и oversampling;
-- логирование таблиц, графиков и артефактов в ClearML.
+Проект запускает один и тот же набор классификаторов на исходной train-выборке и на train-выборке после oversampling, считает метрики, сохраняет артефакты эксперимента и при необходимости логирует результаты в ClearML.
 
-## Status / Limitations
-Текущее состояние проекта:
-- поддерживается только бинарная классификация;
-- основной источник oversampling-методов: библиотека `smote-variants` через `configs/methods.yaml`;
-- кастомные реализации из `src/methods/classic/*` считаются неактуальными и не входят в текущий benchmark-пайплайн.
+## Что Делает Pipeline
 
-## Requirements
-- Python 3.10, 3.11, or 3.12;
-- доступ к ClearML Server;
-- настроенные credentials ClearML для текущего окружения.
+1. Загружает датасет из ClearML Dataset Registry.
+2. Проверяет, что задача бинарная и подходит для stratified holdout/CV.
+3. Делит данные на train/test.
+4. Считает baseline CV через `NoSMOTE`.
+5. Считает CV для выбранного oversampling-метода.
+6. Обучает классификаторы на original train и resampled train.
+7. Сравнивает качество на holdout.
+8. Сохраняет JSON/CSV/NPZ артефакты и manifest run-а.
 
-Зависимости указаны в [requirements.txt](./requirements.txt).
+Поддерживаемый контракт параллельности: можно запускать независимые `ExperimentRunner` instances в разных потоках. Один общий runner между потоками не считается поддерживаемым API.
 
-## Installation
+## Требования
+
+- Python `>=3.10,<3.13`
+- доступ к ClearML Server для реальных benchmark runs
+- настроенный ClearML client (`clearml-init`)
+
+Зависимости:
+- runtime: [requirements.txt](./requirements.txt)
+- dev/test: [requirements-dev.txt](./requirements-dev.txt)
+- packaging metadata: [pyproject.toml](./pyproject.toml)
+
+## Установка
+
 ```bash
 python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt -r requirements-dev.txt
 ```
 
 Windows PowerShell:
+
 ```powershell
+python -m venv .venv
 .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-Linux/macOS:
-```bash
-source .venv/bin/activate
-```
+ClearML инициализируется один раз на окружение:
 
-Установка пакетов:
-```bash
-pip install -r requirements.txt
-```
-
-Инструменты разработки (тесты/линт/формат):
-```bash
-pip install -r requirements.txt -r requirements-dev.txt
-```
-
-Инициализация ClearML (один раз на окружение):
 ```bash
 clearml-init
 ```
 
-## Data Preparation
-Конфиг датасетов: [configs/data/datasets.yaml](./configs/data/datasets.yaml).
+## Конфигурация
 
-Для каждого датасета задается:
-- `data_id`: ID набора данных в ClearML;
-- `prep_data_id`: отдельно подготовленная версия, которая по умолчанию считается небезопасной для benchmark-оценки без явного provenance;
-- ethics metadata для чувствительных датасетов: source/license, sensitive attributes, intended use, limitations.
+Основной experiment config:
 
-По умолчанию benchmark использует raw `data_id`. Если включить `datasets_params.preprocessed: true`, конфигурация пройдет проверку только когда у датасета указано `preprocessing_provenance.train_only: true` или явно выставлено `datasets_params.allow_unsafe_preprocessed: true`. Текущая защита не переносит preprocessing внутрь train/CV fold автоматически; она блокирует или явно маркирует заранее подготовленные ClearML datasets, если их provenance не доказывает train-only preprocessing. Для новых preprocessing steps fit/transform нужно реализовывать внутри train/fold boundaries.
+- [configs/experiment/base_experiment.yaml](./configs/experiment/base_experiment.yaml)
 
-Ожидается, что CSV-файл внутри ClearML Dataset:
-- имеет имя `<dataset_name>.csv`;
-- содержит target в последнем столбце.
+Registry файлов:
 
-## Experiment Configuration
-Основные конфиги:
-- [configs/experiment/per_dataset.yaml](./configs/experiment/per_dataset.yaml): один датасет, несколько методов;
-- [configs/experiment/per_method.yaml](./configs/experiment/per_method.yaml): один метод, несколько датасетов;
-- [configs/methods.yaml](./configs/methods.yaml): доступные oversampling-методы (`smote-variants`);
-- [configs/config_loader.py](./configs/config_loader.py): загрузка YAML-конфигов.
+- [configs/data/datasets.yaml](./configs/data/datasets.yaml) - ClearML dataset IDs и metadata
+- [configs/methods.yaml](./configs/methods.yaml) - oversampling methods
 
-### `per_dataset.yaml`
-Ключи:
-- `dataset`: имя датасета (должно совпадать с ключом в `datasets.yaml`);
-- `methods`: список методов, которые будут запущены;
-- `experiment_config`: параметры CV, random state, список метрик, классификаторы.
+Минимальная структура experiment config:
 
-### `methods.yaml`
-Ключи:
-- `<MethodName>`: логическое имя метода;
-- `method`: строка конструктора алгоритма из `smote_variants`.
+```yaml
+methods:
+  - AKMeans_SMOTE
+  - KMeans_SMOTE
 
-## Run (Target Scenario)
-Точка входа: [main.py](./main.py).
+datasets:
+  - Adult
+  - Haberman
 
-Запуск:
+datasets_params:
+  preprocessed: false
+
+experiment_config:
+  cv_folds: 5
+  test_size: 0.2
+  random_state: 42
+  priority_metrics:
+    - balanced_accuracy
+    - f1_macro
+    - f1_class_0
+    - f1_class_1
+    - g_mean
+    - roc_auc_macro
+    - precision_macro
+    - recall_macro
+  selected_classifiers:
+    - RandomForest
+    - LogisticRegression
+    - kNN
+  max_resampled_multiplier: 5.0
+  max_plot_samples: 5000
+  enable_tsne_plots: false
+```
+
+## Методы
+
+`configs/methods.yaml` поддерживает два источника:
+
+- `smote_variants` - классы из библиотеки `smote-variants`
+- `local` - локальные реализации из `src/methods/classic/*`
+
+Пример local method:
+
+```yaml
+AKMeans_SMOTE:
+  source: local
+  module: src.methods.classic.akmeans_smote
+  class: AKMeansSMOTE
+  params: {}
+```
+
+Все методы, включая third-party методы из `smote_variants`, проходят runner-level проверку результата `fit_resample`.
+
+## Данные
+
+Каждый датасет в [configs/data/datasets.yaml](./configs/data/datasets.yaml) задает:
+
+- `data_id` - raw ClearML Dataset ID
+- `prep_data_id` - optional preprocessed ClearML Dataset ID
+- `source`, `license`, `sensitive_attributes`, `intended_use`, `limitations` - metadata для аудита датасетов
+- `preprocessing_provenance` - optional доказательство, что preprocessing был сделан без leakage
+
+По умолчанию используется raw `data_id`.
+
+`prep_data_id` считается небезопасным, если в config включено `datasets_params.preprocessed: true`, но у датасета нет:
+
+```yaml
+preprocessing_provenance:
+  train_only: true
+```
+
+Обойти проверку можно только явно:
+
+```yaml
+datasets_params:
+  preprocessed: true
+  allow_unsafe_preprocessed: true
+```
+
+Это не делает данные безопасными автоматически. Флаг только фиксирует осознанное решение использовать заранее подготовленный датасет.
+
+CSV внутри ClearML Dataset должен:
+
+- называться `<dataset_name>.csv`
+- хранить target в последнем столбце
+- содержать ровно две target-категории после загрузки
+
+## Запуск
+
+Dry validation без запуска экспериментов:
+
+```bash
+python main.py --dry-validate
+```
+
+Запуск default config:
+
 ```bash
 python main.py
 ```
 
-Целевой сценарий:
-- загружается конфиг эксперимента;
-- для каждого метода создается отдельная задача в ClearML;
-- выполняются CV и финальная оценка на holdout;
-- сохраняются таблицы метрик и артефакты результатов.
+Запуск с другим config относительно `configs/`:
 
-## Metrics and Evaluation
-В проекте используются метрики качества для имбалансных задач, в том числе:
-- `balanced_accuracy`;
-- `f1_macro`;
-- `f1_class_0` / `f1_class_1`;
-- `g_mean`;
-- `roc_auc_macro`;
-- `precision_macro`;
-- `recall_macro`.
+```bash
+python main.py --config experiment/experiment_test.yaml
+```
 
-Macro и per-class метрики являются основными для сравнения imbalanced classification. Weighted metrics остаются доступными, но не входят в default priority list, потому что могут маскировать качество на minority class.
+CLI overrides:
 
-Сравнение проводится в формате:
-- `Original`: обучение на исходной train-выборке;
-- `SMOTE`: обучение на oversampled train-выборке;
-- `Improvement`: разница метрик между двумя режимами.
+```bash
+python main.py \
+  --datasets Adult,Haberman \
+  --methods SMOTE,ADASYN \
+  --classifiers RandomForest,LogisticRegression \
+  --cv-folds 3
+```
 
-## Project Structure
+Отключить построение plot artifacts:
+
+```bash
+python main.py --no-plots
+```
+
+## Safety Checks
+
+Runner останавливает эксперимент с `ValueError`, если `fit_resample` вернул невалидный результат:
+
+- `X` не двумерный
+- `y` не одномерный
+- длины `X/y` не совпадают
+- изменилось число features
+- появились `NaN` или `inf`
+- размер resampled output превысил `max_resampled_multiplier`
+
+Plot safety:
+
+- `enable_tsne_plots` по умолчанию `false`
+- `max_plot_samples` по умолчанию `5000`
+- если scatter plots включены и данных больше лимита, run падает явно, а не пытается строить тяжелый plot
+
+## Артефакты
+
+Для каждого run создается директория:
+
 ```text
-SMOTE-test-brench/
+<results_dir>/<run_id>/
+```
+
+`run_id` включает timestamp, microseconds, git sha и короткий UUID, чтобы независимые runner instances не конфликтовали.
+
+Сохраняемые файлы:
+
+- `manifest.json` - список generated files и metadata run-а
+- `experiment_results_<dataset>_<method>.json` - metrics, metadata, ссылки на prediction arrays
+- `predictions_<dataset>_<method>.npz` - `y_pred` и `y_pred_proba`
+- `results_summary_<dataset>_<method>.csv` - compact summary по priority metrics
+- `summary.csv` / `summary.json` - aggregate results после batch run
+
+JSON artifacts не содержат raw numpy arrays. Большие prediction arrays лежат в `.npz`, а JSON хранит только имя artifact и key.
+
+## Метрики
+
+Default priority metrics ориентированы на imbalanced binary classification:
+
+- `balanced_accuracy`
+- `f1_macro`
+- `f1_class_0`
+- `f1_class_1`
+- `g_mean`
+- `roc_auc_macro`
+- `precision_macro`
+- `recall_macro`
+
+Weighted metrics остаются доступными, но не являются default, потому что могут скрывать плохое качество на minority class.
+
+## Тесты
+
+Локальная проверка:
+
+```bash
+python -m compileall -q main.py configs experiments src tests
+python -m pytest -q
+```
+
+Если system Python управляется дистрибутивом и запрещает `pip install`, используйте `.venv`.
+
+На Python 3.14 полный install может упереться в transitive dependency `tensorflow` из `smote-variants`. Для этого проекта целевой диапазон Python ограничен `>=3.10,<3.13`.
+
+## Структура
+
+```text
+SMOTE-test-bench/
 ├─ configs/
 │  ├─ data/
 │  │  └─ datasets.yaml
 │  ├─ experiment/
-│  │  ├─ per_dataset.yaml
-│  │  └─ per_method.yaml
+│  │  ├─ base_experiment.yaml
+│  │  └─ experiment_test.yaml
 │  ├─ methods.yaml
-│  └─ config_loader.py
+│  ├─ schemas.py
+│  └─ validation.py
 ├─ data/
 │  └─ dataset_to_clearML.py
 ├─ experiments/
@@ -137,11 +276,15 @@ SMOTE-test-brench/
 │  │  └─ basic_evaluator.py
 │  ├─ methods/
 │  │  ├─ base.py
+│  │  ├─ registry.py
 │  │  └─ classic/
 │  └─ utils/
 │     ├─ data_loader.py
 │     ├─ preprocessing.py
 │     └─ visualise.py
+├─ tests/
 ├─ main.py
-└─ requirements.txt
+├─ requirements.txt
+├─ requirements-dev.txt
+└─ pyproject.toml
 ```
