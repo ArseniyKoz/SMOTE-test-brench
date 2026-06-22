@@ -4,6 +4,8 @@ import json
 import logging
 import subprocess
 import time
+import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -11,7 +13,9 @@ import numpy as np
 import pandas as pd
 import smote_variants as sv
 from clearml import Task
+from sklearn.base import clone
 from sklearn.model_selection import StratifiedKFold, train_test_split
+from sklearn.preprocessing import LabelEncoder
 
 from configs.config_loader import ConfigLoader
 from configs.schemas import MethodDefinitionModel
@@ -60,11 +64,13 @@ class ExperimentConfig:
             "priority_metrics",
             [
                 "balanced_accuracy",
-                "f1_weighted",
+                "f1_macro",
+                "f1_class_0",
+                "f1_class_1",
                 "g_mean",
-                "roc_auc_weighted",
-                "precision_weighted",
-                "recall_weighted",
+                "roc_auc_macro",
+                "precision_macro",
+                "recall_macro",
             ],
         )
         self.selected_classifiers = cfg.get(
@@ -83,6 +89,9 @@ class ExperimentConfig:
         self.enable_scatter_plots = cfg.get("enable_scatter_plots", True)
         self.enable_roc_curves = cfg.get("enable_roc_curves", True)
         self.enable_precision_recall_curves = cfg.get("enable_precision_recall_curves", True)
+        self.max_resampled_multiplier = cfg.get("max_resampled_multiplier", 5.0)
+        self.max_plot_samples = cfg.get("max_plot_samples", 5000)
+        self.enable_tsne_plots = cfg.get("enable_tsne_plots", False)
 
     def get_config(self) -> Dict[str, Any]:
         return {
@@ -101,6 +110,9 @@ class ExperimentConfig:
             "enable_scatter_plots": self.enable_scatter_plots,
             "enable_roc_curves": self.enable_roc_curves,
             "enable_precision_recall_curves": self.enable_precision_recall_curves,
+            "max_resampled_multiplier": self.max_resampled_multiplier,
+            "max_plot_samples": self.max_plot_samples,
+            "enable_tsne_plots": self.enable_tsne_plots,
         }
 
 
@@ -140,7 +152,9 @@ class ExperimentRunner:
             return "nogit"
 
     def _build_run_id(self) -> str:
-        return f"{time.strftime('%Y%m%d_%H%M%S')}_{self.git_sha}"
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        micros = f"{int((time.time() % 1) * 1_000_000):06d}"
+        return f"{timestamp}_{micros}_{self.git_sha}_{uuid.uuid4().hex[:8]}"
 
     def _run_root(self) -> Path:
         return Path(self.config.results_dir) / self.run_id
@@ -187,14 +201,16 @@ class ExperimentRunner:
         if extra:
             manifest.update(extra)
 
-        with manifest_path.open("w", encoding="utf-8") as file:
+        tmp_path = manifest_path.with_name(f".{manifest_path.name}.{uuid.uuid4().hex}.tmp")
+        with tmp_path.open("w", encoding="utf-8") as file:
             json.dump(manifest, file, indent=2, ensure_ascii=False)
+        tmp_path.replace(manifest_path)
 
     def _log_dataset_info(self, x_data, y_data):
         if not self.task:
             return
 
-        class_dist = np.bincount(np.asarray(y_data))
+        _, class_dist = np.unique(np.asarray(y_data), return_counts=True)
         imbalance_ratio = max(class_dist) / min(class_dist) if min(class_dist) > 0 else float("inf")
 
         logger = self.task.get_logger()
@@ -202,6 +218,129 @@ class ExperimentRunner:
         logger.report_scalar("Dataset Info", "Features", x_data.shape[1], iteration=0)
         logger.report_scalar("Dataset Info", "Classes", len(class_dist), iteration=0)
         logger.report_scalar("Dataset Info", "Imbalance Ratio", imbalance_ratio, iteration=0)
+
+    def _new_estimator(self, estimator: Any) -> Any:
+        try:
+            return clone(estimator)
+        except Exception:
+            return deepcopy(estimator)
+
+    def _class_distribution(self, y_data: pd.Series) -> Dict[str, int]:
+        classes, counts = np.unique(np.asarray(y_data), return_counts=True)
+        return {str(label): int(count) for label, count in zip(classes, counts)}
+
+    def _encode_binary_target(self, y_data: pd.Series, dataset_name: str) -> Tuple[pd.Series, Dict[str, int]]:
+        classes = np.unique(np.asarray(y_data))
+        if len(classes) != 2:
+            raise ValueError(
+                f"Dataset '{dataset_name}' must be binary for this benchmark; "
+                f"found {len(classes)} classes: {classes.tolist()}"
+            )
+
+        encoder = LabelEncoder()
+        encoded = encoder.fit_transform(np.asarray(y_data))
+        mapping = {str(label): int(encoded_label) for label, encoded_label in zip(encoder.classes_, range(2))}
+        return pd.Series(encoded, index=y_data.index, name=y_data.name), mapping
+
+    def _validate_split_feasibility(self, y_data: pd.Series, dataset_name: str) -> None:
+        class_counts = np.bincount(np.asarray(y_data), minlength=2)
+        min_count = int(class_counts.min())
+        if min_count < 2:
+            raise ValueError(
+                f"Dataset '{dataset_name}' needs at least 2 samples in each class for "
+                f"stratified holdout; class counts={class_counts.tolist()}"
+            )
+
+    def _validate_cv_feasibility(self, y_train: pd.Series, dataset_name: str) -> None:
+        class_counts = np.bincount(np.asarray(y_train), minlength=2)
+        min_count = int(class_counts.min())
+        if min_count < self.config.cv_folds:
+            raise ValueError(
+                f"Dataset '{dataset_name}' cannot use cv_folds={self.config.cv_folds}; "
+                f"the minority train class has {min_count} samples"
+            )
+
+    def _select_positive_proba(self, classifier: Any, x_data: Any) -> Optional[np.ndarray]:
+        if not hasattr(classifier, "predict_proba"):
+            return None
+        proba = classifier.predict_proba(x_data)
+        classes = getattr(classifier, "classes_", None)
+        if classes is None:
+            return proba[:, -1]
+        positive_indices = np.where(np.asarray(classes) == 1)[0]
+        if positive_indices.size == 0:
+            return None
+        return proba[:, int(positive_indices[0])]
+
+    def _checked_fit_resample(
+        self,
+        resampler: Any,
+        x_data: np.ndarray,
+        y_data: np.ndarray,
+        context: str,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        x_input = np.asarray(x_data)
+        y_input = np.asarray(y_data)
+        x_resampled, y_resampled = resampler.fit_resample(x_input, y_input)
+        x_resampled = np.asarray(x_resampled)
+        y_resampled = np.asarray(y_resampled)
+
+        if x_resampled.ndim != 2:
+            raise ValueError(f"{context}: resampler returned X with ndim={x_resampled.ndim}, expected 2")
+        if y_resampled.ndim != 1:
+            raise ValueError(f"{context}: resampler returned y with ndim={y_resampled.ndim}, expected 1")
+        if len(x_resampled) != len(y_resampled):
+            raise ValueError(
+                f"{context}: resampler returned mismatched lengths X={len(x_resampled)}, y={len(y_resampled)}"
+            )
+        if x_input.ndim != 2 or x_resampled.shape[1] != x_input.shape[1]:
+            raise ValueError(
+                f"{context}: resampler changed feature count from "
+                f"{x_input.shape[1] if x_input.ndim == 2 else 'invalid'} to {x_resampled.shape[1]}"
+            )
+        if not np.all(np.isfinite(x_resampled)):
+            raise ValueError(f"{context}: resampler returned NaN or infinite values in X")
+        if not np.all(np.isfinite(y_resampled)):
+            raise ValueError(f"{context}: resampler returned NaN or infinite values in y")
+
+        max_rows = int(np.ceil(len(x_input) * float(self.config.max_resampled_multiplier)))
+        if len(x_resampled) > max_rows:
+            raise ValueError(
+                f"{context}: resampler output has {len(x_resampled)} rows, "
+                f"limit is {max_rows} ({self.config.max_resampled_multiplier}x input)"
+            )
+
+        return x_resampled, y_resampled
+
+    def _resolve_preprocessing_policy(
+        self,
+        dataset_name: str,
+        dataset_params: Dict[str, Any],
+    ) -> Tuple[bool, Dict[str, Any]]:
+        requested = bool(dataset_params.get("preprocessed", False))
+        allow_unsafe = bool(dataset_params.get("allow_unsafe_preprocessed", False))
+        policy = {
+            "requested_preprocessed": requested,
+            "used_preprocessed": requested,
+            "unsafe_preprocessed_allowed": allow_unsafe,
+            "reason": None,
+        }
+        if not requested:
+            return False, policy
+
+        dataset_cfg = ConfigLoader("data/datasets.yaml").load().get(dataset_name, {})
+        provenance = dataset_cfg.get("preprocessing_provenance") or {}
+        if provenance.get("train_only") is True or allow_unsafe:
+            policy["preprocessing_provenance"] = provenance
+            return True, policy
+
+        policy["used_preprocessed"] = False
+        policy["reason"] = (
+            "prep_data_id ignored because preprocessing_provenance.train_only=true "
+            "is not present"
+        )
+        logging.warning("Using raw dataset for %s: %s", dataset_name, policy["reason"])
+        return False, policy
 
     def _cross_validation_with_smote(
         self,
@@ -225,19 +364,25 @@ class ExperimentRunner:
             }
 
             for fold_idx, (train_idx, val_idx) in enumerate(cv.split(x_train, y_train), start=1):
+                fold_resampler = self._new_estimator(smote_algorithm)
+                fold_classifier = self._new_estimator(classifier)
+
                 x_fold_train = x_train.iloc[train_idx].values
                 x_fold_val = x_train.iloc[val_idx].values
                 y_fold_train = y_train.iloc[train_idx].values
                 y_fold_val = y_train.iloc[val_idx].values
 
-                x_fold_smote, y_fold_smote = smote_algorithm.fit_resample(x_fold_train, y_fold_train)
+                x_fold_smote, y_fold_smote = self._checked_fit_resample(
+                    fold_resampler,
+                    x_fold_train,
+                    y_fold_train,
+                    context=f"CV fold {fold_idx} {fold_resampler.__class__.__name__}",
+                )
 
-                classifier.fit(x_fold_smote, y_fold_smote)
-                y_pred = classifier.predict(x_fold_val)
+                fold_classifier.fit(x_fold_smote, y_fold_smote)
+                y_pred = fold_classifier.predict(x_fold_val)
 
-                y_pred_proba = None
-                if hasattr(classifier, "predict_proba"):
-                    y_pred_proba = classifier.predict_proba(x_fold_val)[:, 1]
+                y_pred_proba = self._select_positive_proba(fold_classifier, x_fold_val)
 
                 fold_metrics = all_smote_metrics(y_fold_val, y_pred, y_pred_proba)
                 for metric in self.config.priority_metrics:
@@ -307,23 +452,26 @@ class ExperimentRunner:
         smote_algorithm: Any,
         classifiers: Dict[str, Any],
     ) -> Dict[str, Any]:
-        x_train_smote, y_train_smote = smote_algorithm.fit_resample(x_train.values, y_train.values)
+        final_resampler = self._new_estimator(smote_algorithm)
+        x_train_smote, y_train_smote = self._checked_fit_resample(
+            final_resampler,
+            x_train.values,
+            y_train.values,
+            context=f"final evaluation {final_resampler.__class__.__name__}",
+        )
 
         final_results: Dict[str, Any] = {}
         for clf_name, classifier in classifiers.items():
-            clf_original = type(classifier)(**classifier.get_params())
+            clf_original = self._new_estimator(classifier)
             clf_original.fit(x_train, y_train)
             y_pred_original = clf_original.predict(x_test)
 
-            clf_smote = type(classifier)(**classifier.get_params())
+            clf_smote = self._new_estimator(classifier)
             clf_smote.fit(x_train_smote, y_train_smote)
             y_pred_smote = clf_smote.predict(x_test)
 
-            y_pred_proba_original = None
-            y_pred_proba_smote = None
-            if hasattr(clf_original, "predict_proba"):
-                y_pred_proba_original = clf_original.predict_proba(x_test)[:, 1]
-                y_pred_proba_smote = clf_smote.predict_proba(x_test)[:, 1]
+            y_pred_proba_original = self._select_positive_proba(clf_original, x_test)
+            y_pred_proba_smote = self._select_positive_proba(clf_smote, x_test)
 
             metrics_original = all_smote_metrics(y_test, y_pred_original, y_pred_proba_original)
             metrics_smote = all_smote_metrics(y_test, y_pred_smote, y_pred_proba_smote)
@@ -385,24 +533,35 @@ class ExperimentRunner:
         y_train_smote: np.ndarray,
         synthetic_samples: Optional[np.ndarray],
     ):
-        if not self.task or not self.config.enable_scatter_plots:
+        if not self.config.enable_scatter_plots:
             return
 
-        try:
-            x_np = x_train.values if hasattr(x_train, "values") else x_train
-            y_np = y_train.values if hasattr(y_train, "values") else y_train
-            feature_names = [f"Feature {idx + 1}" for idx in range(x_np.shape[1])]
-
-            self.visualiser.plot_data_scatter(
-                X_original=x_np,
-                y_original=y_np,
-                X_smote=x_train_smote,
-                y_smote=y_train_smote,
-                synthetic_samples=synthetic_samples,
-                feature_names=feature_names,
-                log_to_clearml=True,
-                iteration=2,
+        x_np = x_train.values if hasattr(x_train, "values") else x_train
+        y_np = y_train.values if hasattr(y_train, "values") else y_train
+        plot_size = max(len(x_np), len(x_train_smote))
+        if plot_size > self.config.max_plot_samples:
+            raise ValueError(
+                f"Scatter plots are enabled but plot data has {plot_size} samples; "
+                f"max_plot_samples={self.config.max_plot_samples}"
             )
+
+        if not self.task:
+            return
+
+        x_np = np.asarray(x_np)
+        feature_names = [f"Feature {idx + 1}" for idx in range(x_np.shape[1])]
+
+        self.visualiser.plot_data_scatter(
+            X_original=x_np,
+            y_original=y_np,
+            X_smote=x_train_smote,
+            y_smote=y_train_smote,
+            synthetic_samples=synthetic_samples,
+            feature_names=feature_names,
+            log_to_clearml=True,
+            iteration=2,
+        )
+        if self.config.enable_tsne_plots:
             self.visualiser.plot_data_scatter_tsne(
                 X_original=x_np,
                 y_original=y_np,
@@ -413,8 +572,6 @@ class ExperimentRunner:
                 log_to_clearml=True,
                 iteration=2,
             )
-        except Exception as exc:
-            logging.warning("Scatter visualisation skipped: %s", exc)
 
     def _prepare_predictions_data(self, final_results: Dict[str, Any]) -> Dict[str, Dict[str, np.ndarray]]:
         roc_predictions: Dict[str, Dict[str, np.ndarray]] = {}
@@ -556,12 +713,22 @@ class ExperimentRunner:
         method_dir.mkdir(parents=True, exist_ok=True)
 
         json_path = method_dir / f"experiment_results_{dataset_name}_{smote_algorithm.__class__.__name__}.json"
+        npz_path = method_dir / f"predictions_{dataset_name}_{smote_algorithm.__class__.__name__}.npz"
+        json_results, prediction_arrays = self._split_prediction_artifacts(
+            experiment_results,
+            predictions_filename=npz_path.name,
+        )
+        if prediction_arrays:
+            np.savez_compressed(npz_path, **prediction_arrays)
+
         with json_path.open("w", encoding="utf-8") as file:
-            json.dump(experiment_results, file, indent=2, ensure_ascii=False, default=str)
+            json.dump(json_results, file, indent=2, ensure_ascii=False)
 
         csv_path = self._save_results_csv(experiment_results, dataset_name, smote_algorithm, method_dir)
 
         files = [str(json_path.relative_to(run_root))]
+        if prediction_arrays:
+            files.append(str(npz_path.relative_to(run_root)))
         if csv_path is not None:
             files.append(str(csv_path.relative_to(run_root)))
 
@@ -573,9 +740,50 @@ class ExperimentRunner:
                 self.task.upload_artifact("results_summary_csv", str(csv_path))
 
         result_paths: Dict[str, Path] = {"json": json_path}
+        if prediction_arrays:
+            result_paths["predictions"] = npz_path
         if csv_path is not None:
             result_paths["csv"] = csv_path
         return result_paths
+
+    def _split_prediction_artifacts(
+        self,
+        experiment_results: Dict[str, Any],
+        predictions_filename: str,
+    ) -> Tuple[Dict[str, Any], Dict[str, np.ndarray]]:
+        json_results = deepcopy(experiment_results)
+        prediction_arrays: Dict[str, np.ndarray] = {}
+        final_results = json_results.get("final_test_results", {})
+
+        for clf_name, clf_results in final_results.items():
+            for data_key in ("original_data", "smote_data"):
+                data = clf_results.get(data_key, {})
+                for pred_key in ("y_pred", "y_pred_proba"):
+                    value = data.get(pred_key)
+                    if value is None:
+                        data[pred_key] = None
+                        continue
+                    array_key = f"{clf_name}__{data_key}__{pred_key}"
+                    prediction_arrays[array_key] = np.asarray(value)
+                    data[pred_key] = {
+                        "artifact": predictions_filename,
+                        "key": array_key,
+                    }
+
+        return self._to_jsonable(json_results), prediction_arrays
+
+    def _to_jsonable(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {str(key): self._to_jsonable(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [self._to_jsonable(item) for item in value]
+        if isinstance(value, np.ndarray):
+            raise TypeError("raw numpy arrays must be stored in .npz artifacts, not JSON")
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, Path):
+            return str(value)
+        return value
 
     def close_task(self):
         if self.task:
@@ -617,12 +825,14 @@ class ExperimentRunner:
             )
             self.task.add_tags([dataset_name, smote_algorithm.__class__.__name__])
 
-        preprocess = bool(dataset_params.get("preprocessed", False))
+        preprocess, preprocessing_policy = self._resolve_preprocessing_policy(dataset_name, dataset_params)
         df, metadata = fetch_dataset(dataset_name, preprocess)
 
         target_col = df.columns.tolist()[-1]
         x_data = df.drop([target_col], axis=1)
-        y_data = df.iloc[:, -1]
+        y_data_raw = df.iloc[:, -1]
+        y_data, target_mapping = self._encode_binary_target(y_data_raw, dataset_name)
+        self._validate_split_feasibility(y_data, dataset_name)
 
         self._log_dataset_info(x_data, y_data)
 
@@ -633,6 +843,7 @@ class ExperimentRunner:
             stratify=y_data,
             random_state=self.config.random_state,
         )
+        self._validate_cv_feasibility(y_train, dataset_name)
 
         classifiers = self.classifier_pool.get_classifiers()
         selected_classifiers = {
@@ -676,6 +887,8 @@ class ExperimentRunner:
                 "algorithm_name": smote_algorithm.__class__.__name__,
                 "dataset_params": dataset_params,
                 "method_params": method_params,
+                "target_encoding": target_mapping,
+                "preprocessing_policy": preprocessing_policy,
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "clearml_task_id": self.task.id if self.task else None,
             },
@@ -684,8 +897,9 @@ class ExperimentRunner:
                 "features": x_data.shape[1],
                 "train_samples": len(x_train),
                 "test_samples": len(x_test),
-                "original_class_distribution": np.bincount(np.asarray(y_data)).tolist(),
-                "train_class_distribution": np.bincount(np.asarray(y_train)).tolist(),
+                "original_class_distribution": self._class_distribution(y_data),
+                "train_class_distribution": self._class_distribution(y_train),
+                "test_class_distribution": self._class_distribution(y_test),
             },
             "cross_validation_imbalanced_results": baseline_cv_results,
             "cross_validation_results": method_cv_results,
@@ -858,9 +1072,9 @@ class ExperimentRunner:
         general_results: List[Dict[str, Any]] = []
         for method_name in oversampler_names:
             method_overrides = method_params_overrides.get(method_name)
-            oversampler = build_method(method_name, methods_registry, method_overrides)
 
             for dataset_name in datasets_name:
+                oversampler = build_method(method_name, methods_registry, method_overrides)
                 result = self.run_single_experiment(
                     dataset_name=dataset_name,
                     smote_algorithm=oversampler,
